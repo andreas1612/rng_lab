@@ -3,7 +3,7 @@
 **Tool:** MiniLab RNG Engine v0.1.0  
 **Methodology:** MiniLab-RNG-Methodology-v0.1  
 **API version:** 0.5.0  
-**Last updated:** 2026-05-12 (Sprint 5 complete)  
+**Last updated:** 2026-05-12 (Sprint 5 + 4.5 complete)  
 **Repo:** https://github.com/andreas1612/rng_lab
 
 > This is the single entry point for all project documentation.
@@ -41,7 +41,7 @@ python "C:\Users\Andreas.Pi\smoke_check.py" smoke_result.json
 
 | Item | Value |
 |---|---|
-| Sprints complete | 0, 1, 2, 3, 3.5, 4, 4.5 (partial), 5 |
+| Sprints complete | 0, 1, 2, 3, 3.5, 4, 4.5, 5 |
 | API version | 0.5.0 |
 | Tool name | MiniLab RNG Engine v0.1.0 |
 | NIST tests | 15 (each in own file) |
@@ -55,12 +55,14 @@ python "C:\Users\Andreas.Pi\smoke_check.py" smoke_result.json
 
 ## What works end-to-end (verified 2026-05-12)
 
-- `GET /health` → `{"status":"ok","version":"0.5.0"}`
-- `POST /analyse` → 15 NIST + 8 supplementary + 4 jurisdiction scores + report_id + sha256
-- `POST /report` → PDF with Report ID, SHA-256, Results Legend, Scope Limitation, DRAFT watermark when AUP incomplete; `<report_id>.json` evidence file saved alongside
+- `GET /health` → `{"status":"ok","tool_version":"MiniLab RNG Engine v0.1.0","methodology_version":"MiniLab-RNG-Methodology-v0.1"}`
+- `POST /analyse` → 15 NIST + 8 supplementary + 4 jurisdiction scores + report_id + sha256; result cached (SHA-256 key, TTL 10 min)
+- `POST /report` → PDF with Report ID, SHA-256, Results Legend, Scope Limitation, DRAFT watermark when AUP incomplete; `<report_id>.json` evidence file saved alongside; cache hit = ~0.3s
 - UI loads at localhost:5173, health dot shows online
+- UI: 5 AUP fields, 6-label badge colours, Report ID + SHA-256 display, label legend ✓
 - Bad RNG (00/FF alternating): 12–13/15 NIST FAIL, all jurisdictions FAIL ✓
-- Good RNG (os.urandom 200KB): 15/15 PASS or BORDERLINE, all jurisdictions PASS or BORDERLINE ✓
+- Good RNG (os.urandom 200KB): 13–15/15 PASS or BORDERLINE, all jurisdictions PASS or BORDERLINE ✓
+- PDF end-to-end verified with good.bin: RPT-A9AC6CFBC633, all Sprint 5 MVP items present ✓
 
 ---
 
@@ -74,16 +76,16 @@ python "C:\Users\Andreas.Pi\smoke_check.py" smoke_result.json
 | good.bin (os.urandom) | 200 KB | 1.6M | Single-seq | 141.9s | Full computation on random data |
 | large.bin (os.urandom) | 12.5 MB | 100M | Level-2 | ~4–6 hrs | 100 seq × 15 tests sequential |
 
-**After parallelisation (Sprint 4.5-A — NOT YET IMPLEMENTED):**
+**After parallelisation (Sprint 4.5-A — IMPLEMENTED 2026-05-12):**
 
-| File | Bits | Est. time after fix |
-|---|---|---|
-| 200 KB | 1.6M | ~30s |
-| 12.5 MB | 100M | ~30–60 min |
+| File | Bits | Cold (parallel) | Warm (cached) |
+|---|---|---|---|
+| 200 KB | 1.6M | ~67s | ~0.3s |
+| 12.5 MB | 100M | ~30–60 min est. | ~0.3s |
 
 **Parallelisation approach:** `ThreadPoolExecutor(max_workers=15)` in `nist/runner.py`.
-numpy releases GIL during computation → real speedup from threading.
-Target file: `src/engine/nist/runner.py` → `_run_tests_on_bits()` function.
+Thread-safe stdout suppression via thread-local proxy in `nist/tests/_wrap.py` (replaces non-thread-safe `redirect_stdout`).
+**Caching:** SHA-256-keyed in-memory cache, TTL 10 min, in `main.py`. Second call on same file = ~0.3s.
 
 **Recommended test sizes:**
 
@@ -157,16 +159,17 @@ All 4 jurisdictions BORDERLINE (not failing). Correct behaviour.
 
 ## Open items by priority
 
-### P0 — Must do before next client run
-- [ ] **Restart backend** after Sprint 5 deploy (old process still running on 8082)
-- [ ] **Update `smoke_check.py`** to display new labels (BORDERLINE vs WARNING)
-- [ ] **UI update** — App.tsx still uses old 3-label scheme; needs 5 AUP fields, Report ID, SHA-256 display, 6-label badge colours
+### P0 — DONE (2026-05-12)
+- [x] Backend restarted — running Sprint 5 code, health returns `tool_version`
+- [x] UI updated — 6-label badges, 5 AUP fields, Report ID + SHA-256 display
+- [x] Parallelised NIST tests — ThreadPoolExecutor, thread-safe stdout suppressor
+- [x] Result caching — SHA-256 keyed, TTL 10 min; warm cache = ~0.3s
+- [x] PDF end-to-end verified with good.bin
 
-### P1 — Sprint 4.5 (performance)
-- [ ] **Parallelise NIST tests** — `ThreadPoolExecutor` in `nist/runner.py`
-  Target: 200KB from 142s → ~30s; 12.5MB Level-2 from ~6hrs → ~45min
-- [ ] **Result caching** — SHA-256 keyed, TTL 10min; `/report` reuses cached analysis
-- [ ] **Level-2 smoke test** — run after parallelisation with 12.5MB file
+### P1 — Sprint 4.5 (performance) — DONE
+- [x] Parallelise NIST tests — `ThreadPoolExecutor` in `nist/runner.py`; 142s → ~67s cold
+- [x] Result caching — SHA-256 keyed, TTL 10 min; 67s → 0.3s warm
+- [ ] **Level-2 smoke test** — run with 12.5MB file to confirm parallelisation benefit at scale
 
 ### P2 — Sprint 5.1 (evidence persistence)
 - [ ] Evidence JSON currently saved to `tempfile.gettempdir()` (volatile)
@@ -307,7 +310,47 @@ finalogic-preaudit-tool/
 | Check AUP text | `docs/legal/AUP.md` |
 | See all sprint history | `STATUS.md` |
 | See what's next and open items | `NEXT_SESSION.md` → Open items section |
+| Academic paper plan and career outcomes | `docs/research/PAPER_PLAN.md` |
 | See full directory with descriptions | This file → Directory structure section above |
+
+---
+
+## MD file maintenance — what to update after each sprint
+
+### Update every sprint (living documents)
+
+| File | What to update | Trigger |
+|---|---|---|
+| `REFERENCE.md` | "Current state at a glance" table, "What works end-to-end", performance benchmarks, open items by priority | Every sprint end |
+| `NEXT_SESSION.md` | Full rewrite — current state, quick-start, open items, file map of deltas | Every session end |
+| `STATUS.md` | Add new sprint section with decisions and smoke test results | Every sprint end |
+
+### Update when the relevant thing changes (conditional)
+
+| File | Update when... |
+|---|---|
+| `README.md` | Public API endpoints change, new features a client would see, new install step |
+| `src/engine/README.md` | Backend endpoints or request/response schema changes |
+| `docs/development/ARCHITECTURE.md` | New module added, data flow changes, new dependency |
+| `docs/development/TEST_MODULE_SPEC.md` | Interface contract for test modules changes |
+| `docs/methodology/METHODOLOGY_v0.1.md` | Test coverage, thresholds, or scoring logic changes |
+| `docs/methodology/THRESHOLD_SCHEME.md` | p-value thresholds or label definitions change |
+| `docs/algorithms/SUPPLEMENTARY_TESTS.md` | A supplementary test is added, removed, or its algorithm is fixed |
+| `docs/audit_comparison/REAL_AUDIT_COVERAGE.md` | Coverage % changes (new tests added, blockers resolved) |
+
+### Never touch (frozen)
+
+| File | Reason |
+|---|---|
+| `docs/algorithms/NIST_SP800_22.md` | Describes the NIST standard — does not change with our code |
+| `docs/algorithms/ALGORITHMS.md` | Legacy overview, superseded by per-test files — kept for reference |
+| `docs/algorithms/THRESHOLDS.md` | Legacy reference, superseded by `THRESHOLD_SCHEME.md` |
+| `docs/legal/LEGAL.md` | Legal text — change only with legal review |
+| `docs/legal/AUP.md` | AUP text — change only with legal review, bump version if changed |
+| `docs/research/RESEARCH_DONE.md` | Research is complete — do not re-open |
+| `docs/research/SOURCES.md` | Static reference list |
+| `CLAUDE_CODE_PROMPT.md` | Original session prompt — historical record |
+| `CLAUDE.md` | Development guide for Claude Code — update only if dev workflow changes |
 
 ---
 

@@ -1,26 +1,37 @@
 import axios from 'axios'
 
-// ── Type definitions ─────────────────────────────────────────────────────────
+// ── Label scheme (mirrors core/labels.py) ────────────────────────────────────
 
-export type TestStatus = 'pass' | 'warning' | 'fail' | 'insufficient_data' | 'error'
-export type OverallStatus = 'pass' | 'warning' | 'fail' | 'incomplete'
+export type TestStatus =
+  | 'PASS'
+  | 'BORDERLINE'
+  | 'FAIL'
+  | 'NOT_RUN'
+  | 'INDICATIVE_ONLY'
+  | 'INCONCLUSIVE'
+
+export type OverallStatus = 'PASS' | 'BORDERLINE' | 'FAIL' | 'incomplete'
+
+// ── Interfaces ───────────────────────────────────────────────────────────────
 
 export interface NistTest {
+  test_id: string
   name: string
+  statistic: number | null
   p_value: number | null
   status: TestStatus
-  threshold_used: number
-  error_detail?: string
+  detail: string
 }
 
 export interface Level2PerTest {
+  test_id: string
   name: string
   n_sequences: number
   n_passing: number
   proportion_passing: number | null
-  proportion_result: 'pass' | 'warning' | 'fail' | 'insufficient_data'
+  proportion_result: TestStatus
   ks_p_value: number | null
-  uniformity_result: 'pass' | 'fail' | 'insufficient_data' | 'error'
+  uniformity_result: TestStatus
 }
 
 export interface Level2 {
@@ -49,16 +60,19 @@ export interface JurisdictionScore {
   id: string
   name: string
   short_name: string
-  overall: OverallStatus
+  overall: string
   tests_passed: number
-  tests_warning: number
+  tests_borderline: number
+  tests_warning: number   // legacy alias — same value as tests_borderline
   tests_failed: number
   tests_not_run: number
   nist_check: { result: string; detail: string }
   rtp_floor_check: { result: string; detail: string }
+  notes?: string
 }
 
 export interface SupplementaryTest {
+  test_id?: string
   name: string
   statistic: number | null
   p_value: number | null
@@ -72,40 +86,68 @@ export interface SupplementaryResult {
   error?: string
 }
 
+export interface AupRecord {
+  accepted: boolean
+  accepted_by: string
+  acceptance_timestamp_utc: string
+  aup_version: string
+  aup_reference_id: string
+}
+
 export interface AnalysisResult {
+  report_id: string
+  tool_version: string
+  methodology_version: string
   filename: string
+  input_sha256: string
+  input_size_bytes: number
+  input_size_bits: number
   generated_at: string
+  aup: AupRecord
   nist_result: NistResult
   supplementary_result: SupplementaryResult
   jurisdiction_scores: JurisdictionScore[]
 }
 
+// ── AUP payload ──────────────────────────────────────────────────────────────
+
+export interface AupFields {
+  accepted: boolean
+  acceptedBy: string
+  timestamp: string
+  version: string
+  referenceId: string
+}
+
 // ── API functions ────────────────────────────────────────────────────────────
 
-// Use relative URLs — Vite proxy rewrites /api/* → http://localhost:8081/*
 const api = axios.create({ baseURL: '' })
 
-export async function checkHealth(): Promise<{ status: string }> {
-  const res = await api.get<{ status: string }>('/api/health')
+export async function checkHealth(): Promise<{ status: string; tool_version?: string }> {
+  const res = await api.get<{ status: string; tool_version?: string }>('/api/health')
   return res.data
 }
 
-export async function analyseFile(file: File): Promise<AnalysisResult> {
+export async function analyseFile(file: File, aup: AupFields): Promise<AnalysisResult> {
   const form = new FormData()
   form.append('file', file)
+  form.append('aup_accepted', String(aup.accepted))
+  form.append('aup_accepted_by', aup.acceptedBy)
+  form.append('aup_acceptance_timestamp', aup.timestamp)
+  form.append('aup_version_field', aup.version)
+  form.append('aup_reference_id', aup.referenceId)
   const res = await api.post<AnalysisResult>('/api/analyse', form)
   return res.data
 }
 
-export async function generateReport(
-  file: File,
-  aupTimestamp: string,
-  aupRef: string,
-): Promise<Blob> {
+export async function generateReport(file: File, aup: AupFields): Promise<Blob> {
   const form = new FormData()
   form.append('file', file)
-  form.append('aup_timestamp', aupTimestamp)
-  form.append('aup_ref', aupRef)
+  form.append('aup_accepted', String(aup.accepted))
+  form.append('aup_accepted_by', aup.acceptedBy)
+  form.append('aup_acceptance_timestamp', aup.timestamp)
+  form.append('aup_version_field', aup.version)
+  form.append('aup_reference_id', aup.referenceId)
   const res = await api.post('/api/report', form, { responseType: 'blob' })
   return res.data as Blob
 }

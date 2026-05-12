@@ -167,20 +167,41 @@ Applied four cleanup fixes before building Sprint 4 UI on top of the engine:
 
 ---
 
-### Sprint 4.5 — RNG Perfection (IN PROGRESS — 2026-05-11)
+### Sprint 4.5 — RNG Perfection (COMPLETE — 2026-05-12)
 
-#### Benchmark Results (2026-05-11)
+#### Benchmark Results (2026-05-11 sequential baseline)
 
-Timed on corporate laptop, single core, Python pure-NIST library:
+| File | Size | Mode | Sequential time |
+|---|---|---|---|
+| bad.bin (00/FF alternating) | 200 KB / 1.6M bits | Single-sequence | 31.9s |
+| good.bin (os.urandom) | 200 KB / 1.6M bits | Single-sequence | 141.9s |
 
-| File | Size | Mode | /analyse time | /report time |
-|---|---|---|---|---|
-| bad.bin (00/FF alternating) | 200 KB / 1.6M bits | Single-sequence | 31.9s | ~84s |
-| good.bin (os.urandom) | 200 KB / 1.6M bits | Single-sequence | 141.9s | ~142s |
+#### 4.5-A — Parallelise NIST Tests (COMPLETE — 2026-05-12)
+- [x] `_run_tests_on_bits()` in `nist/runner.py` wraps all 15 calls in `ThreadPoolExecutor(max_workers=15)`
+- [x] Results collected via `as_completed()` and re-sorted to original ALL_TESTS order for stable output
+- [x] Thread-safe stdout suppression: replaced `redirect_stdout` (non-thread-safe global) with
+  `_TLSStdout` thread-local proxy in `nist/tests/_wrap.py`. Each thread routes its writes to a
+  thread-local `io.StringIO` buffer. Proxy installed once via `_install_proxy()` with a lock.
+- [x] Measured speedup: 141.9s → 67s cold (first run on warmed worker pool)
+  - Bottleneck is the slowest single test (Random Excursions Variant); Amdahl's law limits single-sequence gain
+  - Level-2 multi-sequence gain will be ~4–5× as each sequence now runs 15 tests in parallel
 
-Bad RNG analyses ~4.5× faster than good RNG because structured data causes some NIST
-tests (Random Excursions, Approximate Entropy) to resolve extreme values without full
-traversal. Both times are too slow for a web application — fix is parallelisation.
+#### 4.5-B — Result Caching (COMPLETE — 2026-05-12)
+- [x] `_CACHE_TTL_SECONDS = 600` (10 min), `_cache` dict, `_cache_lock` threading.Lock in `main.py`
+- [x] `_cache_get(sha256)` / `_cache_put(sha256, result)` helpers; TTL enforced via `time.monotonic()`
+- [x] `_run_analysis()` checks cache on entry; AUP record overlaid per-call (not cached)
+- [x] Measured: cold 67s → warm 0.3s on same file
+
+#### UI Update (COMPLETE — 2026-05-12)
+- [x] `client.ts`: `TestStatus` and `OverallStatus` updated to 6-label uppercase scheme;
+  `AupFields` interface; `analyseFile()` and `generateReport()` send all 5 AUP form fields;
+  `AnalysisResult` includes `report_id`, `input_sha256`, `tool_version`, `methodology_version`, `aup`
+- [x] `App.tsx`: 6-label `STATUS_COLOURS` (BORDERLINE=orange, INDICATIVE_ONLY=blue,
+  INCONCLUSIVE/NOT_RUN=grey); 5 AUP fields shown on checkbox tick (accepted_by, timestamp
+  readonly, version, ref_id); Report metadata block (Report ID, SHA-256, tool/methodology version,
+  mode, size); inline label legend; AUP record collapsible section; PDF downloaded as `<report_id>.pdf`
+- [x] TypeScript build: 83 modules, 0 errors
+- [x] End-to-end verified: good.bin → PDF RPT-A9AC6CFBC633 — all labels correct, DRAFT watermark
 
 #### Bad RNG Validation (2026-05-11)
 Confirmed correct detection of maximally non-random 00/FF alternating pattern:
@@ -191,12 +212,6 @@ Confirmed correct detection of maximally non-random 00/FF alternating pattern:
 - Frequency (Monobit) and Cumulative Sums PASS — expected; alternating bits are globally
   balanced (50/50 ones and zeros)
 - p=-0.0000 on Block Frequency is a display artefact of float underflow, not a code bug
-
-#### 4.5-A — Parallelise NIST Tests (PENDING)
-- [ ] Wrap the 15 independent NIST test calls in `concurrent.futures.ThreadPoolExecutor`
-- [ ] Each worker suppresses its own stdout (redirect_stdout per thread)
-- [ ] Expected speedup: ~4–5× (numpy releases GIL during computation)
-- [ ] Target: good RNG 200KB analysis from 142s → ~30–35s
 - [ ] Target: Level-2 12.5MB analysis from ~4–6 hrs → ~30–60 min
 - File: `src/engine/nist/runner.py`
 

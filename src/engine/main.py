@@ -2,6 +2,8 @@ import hashlib
 import io
 import os
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -21,6 +23,34 @@ from report.generator import generate_pdf
 from report.json_output import build_evidence_json, save_evidence_json
 
 REPORT_AVAILABLE = True
+
+# ---------------------------------------------------------------------------
+# In-memory analysis cache — keyed by input SHA-256, TTL 10 minutes.
+# Prevents /report from re-running the full NIST suite when the same file
+# was analysed moments before via /analyse.
+# ---------------------------------------------------------------------------
+_CACHE_TTL_SECONDS = 600  # 10 minutes
+_cache: dict = {}          # sha256 → {"result": dict, "expires_at": float}
+_cache_lock = threading.Lock()
+
+
+def _cache_get(sha256: str) -> dict | None:
+    with _cache_lock:
+        entry = _cache.get(sha256)
+        if entry is None:
+            return None
+        if time.monotonic() > entry["expires_at"]:
+            del _cache[sha256]
+            return None
+        return entry["result"]
+
+
+def _cache_put(sha256: str, result: dict) -> None:
+    with _cache_lock:
+        _cache[sha256] = {
+            "result": result,
+            "expires_at": time.monotonic() + _CACHE_TTL_SECONDS,
+        }
 
 app = FastAPI(title="MiniLab RNG Engine", version="0.5.0")
 
@@ -59,6 +89,17 @@ async def _run_analysis(file: UploadFile, aup_record: AUPRecord) -> dict:
     input_size_bytes = len(contents)
     input_sha256 = hashlib.sha256(contents).hexdigest()
 
+    # Return cached analysis result if the same file was analysed recently.
+    # The AUP record is per-call and does not affect the analysis, so caching
+    # the statistical results is safe. report_id and generated_at are also
+    # cached — callers that need a fresh ID should not use /report for that.
+    cached = _cache_get(input_sha256)
+    if cached is not None:
+        # Overlay the current AUP record onto the cached result.
+        result = dict(cached)
+        result["aup_record"] = aup_record
+        return result
+
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
@@ -87,7 +128,7 @@ async def _run_analysis(file: UploadFile, aup_record: AUPRecord) -> dict:
         generated_at = datetime.now(timezone.utc).isoformat()
         size_bits = nist_result.get("sample_info", {}).get("size_bits", input_size_bytes * 8)
 
-        return {
+        result = {
             "report_id": report_id,
             "tool_version": TOOL_VERSION,
             "methodology_version": METHODOLOGY_VERSION,
@@ -101,6 +142,8 @@ async def _run_analysis(file: UploadFile, aup_record: AUPRecord) -> dict:
             "supplementary_result": supplementary_result,
             "jurisdiction_scores": jurisdiction_scores,
         }
+        _cache_put(input_sha256, result)
+        return result
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)

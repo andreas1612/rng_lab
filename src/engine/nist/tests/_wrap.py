@@ -1,13 +1,65 @@
 """Shared helper for invoking upstream sp800_22 test functions."""
 import io
 import sys
-from contextlib import redirect_stdout
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from core.labels import classify_p_value, LABEL_INDICATIVE_ONLY, LABEL_INCONCLUSIVE
 
 NIST_DIR = Path(__file__).resolve().parent.parent / "sp800_22_tests"
 
+# ---------------------------------------------------------------------------
+# Thread-safe stdout suppressor
+#
+# contextlib.redirect_stdout modifies sys.stdout globally, so concurrent
+# threads corrupt each other's saved reference and sys.stdout ends up as a
+# StringIO after the workers finish. Fix: install a single proxy object as
+# sys.stdout; each thread routes writes to its own thread-local buffer.
+# ---------------------------------------------------------------------------
+_tls = threading.local()
+_install_lock = threading.Lock()
+_real_stdout = None
+
+
+class _TLSStdout:
+    """Proxy that routes writes to the calling thread's suppress buffer."""
+    def write(self, s):
+        buf = getattr(_tls, "buf", None)
+        if buf is not None:
+            buf.write(s)
+        elif _real_stdout is not None:
+            _real_stdout.write(s)
+    def flush(self):
+        if getattr(_tls, "buf", None) is None and _real_stdout is not None:
+            _real_stdout.flush()
+    def fileno(self):
+        return _real_stdout.fileno() if _real_stdout is not None else 1
+
+
+_proxy = _TLSStdout()
+
+
+def _install_proxy():
+    global _real_stdout
+    with _install_lock:
+        if not isinstance(sys.stdout, _TLSStdout):
+            _real_stdout = sys.stdout
+            sys.stdout = _proxy
+
+
+@contextmanager
+def _suppress_stdout():
+    """Context manager: silently discard stdout in the current thread only."""
+    _install_proxy()
+    _tls.buf = io.StringIO()
+    try:
+        yield _tls.buf
+    finally:
+        _tls.buf = None
+
+
+# ---------------------------------------------------------------------------
 
 def _ensure_path():
     if not NIST_DIR.exists():
@@ -41,7 +93,7 @@ def run_upstream(module_suffix: str, bits, test_id: str, test_name: str,
     try:
         mod = __import__("sp800_22_" + module_suffix)
         func = getattr(mod, module_suffix)
-        with redirect_stdout(io.StringIO()):
+        with _suppress_stdout():
             success, p, plist = func(bits)
         if plist is not None and len(plist) > 0:
             try:

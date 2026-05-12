@@ -4,31 +4,37 @@ import {
   analyseFile,
   generateReport,
   AnalysisResult,
+  AupFields,
   JurisdictionScore,
   NistTest,
   SupplementaryTest,
-  TestStatus,
-  OverallStatus,
 } from './api/client'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const MIN_BYTES       = 125_000        // 1M bits
 const MULTI_SEQ_BYTES = 12_500_000     // 100M bits
+const AUP_VERSION     = 'AUP-v0.1'
 
-// ── Colour helpers ───────────────────────────────────────────────────────────
+// ── 6-label colour palette ───────────────────────────────────────────────────
+// Mirrors core/labels.py label scheme. Keys are the exact strings the backend emits.
 
 const STATUS_COLOURS: Record<string, { bg: string; fg: string; border: string }> = {
-  pass:             { bg: '#d4edda', fg: '#155724', border: '#c3e6cb' },
-  warning:          { bg: '#fff3cd', fg: '#856404', border: '#ffeeba' },
-  fail:             { bg: '#f8d7da', fg: '#842029', border: '#f5c6cb' },
-  insufficient_data:{ bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
-  error:            { bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
-  incomplete:       { bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
+  PASS:            { bg: '#d4edda', fg: '#155724', border: '#c3e6cb' },
+  BORDERLINE:      { bg: '#ffe5b4', fg: '#7a4a00', border: '#ffcd6e' },
+  FAIL:            { bg: '#f8d7da', fg: '#842029', border: '#f5c6cb' },
+  INDICATIVE_ONLY: { bg: '#cce5ff', fg: '#004085', border: '#b8daff' },
+  INCONCLUSIVE:    { bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
+  NOT_RUN:         { bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
+  // Lowercase fallbacks for jurisdiction sub-result strings
+  incomplete:      { bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
+  not_applicable:  { bg: '#e9ecef', fg: '#6c757d', border: '#dee2e6' },
+  pass:            { bg: '#d4edda', fg: '#155724', border: '#c3e6cb' },
+  fail:            { bg: '#f8d7da', fg: '#842029', border: '#f5c6cb' },
 }
 
 function Badge({ status, label }: { status: string; label?: string }) {
-  const c = STATUS_COLOURS[status] ?? STATUS_COLOURS.error
+  const c = STATUS_COLOURS[status] ?? STATUS_COLOURS.INCONCLUSIVE
   return (
     <span style={{
       display: 'inline-block',
@@ -41,7 +47,7 @@ function Badge({ status, label }: { status: string; label?: string }) {
       border: `1px solid ${c.border}`,
       letterSpacing: '0.03em',
     }}>
-      {(label ?? status).toUpperCase()}
+      {label ?? status}
     </span>
   )
 }
@@ -54,7 +60,7 @@ function sizeMessage(bytes: number): { kind: 'error' | 'warning' | 'info' | null
   if (bytes < MIN_BYTES)
     return {
       kind: 'warning',
-      text: `File is ${(bytes / 1024).toFixed(1)} KB (${(bytes * 8).toLocaleString()} bits) — below the 1,000,000-bit minimum. Results will be marked insufficient_data.`,
+      text: `File is ${(bytes / 1024).toFixed(1)} KB (${(bytes * 8).toLocaleString()} bits) — below the 1,000,000-bit minimum. Results will be marked INDICATIVE_ONLY.`,
     }
   if (bytes < MULTI_SEQ_BYTES)
     return {
@@ -86,6 +92,7 @@ function SizeAlert({ bytes }: { bytes: number }) {
 }
 
 function JurisdictionRow({ jur }: { jur: JurisdictionScore }) {
+  const borderline = jur.tests_borderline ?? jur.tests_warning ?? 0
   return (
     <div style={{
       border: '1px solid #dee2e6', borderRadius: 4, padding: '0.75rem 1rem',
@@ -100,7 +107,7 @@ function JurisdictionRow({ jur }: { jur: JurisdictionScore }) {
         <div><strong>RTP:</strong> {jur.rtp_floor_check.detail}</div>
         <div>
           <strong>Tests:</strong>{' '}
-          {jur.tests_passed} passed · {jur.tests_warning} borderline · {jur.tests_failed} failed · {jur.tests_not_run} not run
+          {jur.tests_passed} PASS · {borderline} BORDERLINE · {jur.tests_failed} FAIL · {jur.tests_not_run} NOT_RUN
         </div>
       </div>
     </div>
@@ -116,6 +123,7 @@ function NistRow({ test }: { test: NistTest }) {
         {p !== null ? p.toFixed(6) : '—'}
       </td>
       <td style={{ padding: '4px 8px' }}><Badge status={test.status} /></td>
+      <td style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#666' }}>{test.detail}</td>
     </tr>
   )
 }
@@ -144,7 +152,8 @@ function CollapsibleSection({ title, children }: { title: string; children: Reac
         onClick={() => setOpen(v => !v)}
         style={{
           background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontWeight: 600, fontSize: '0.9rem', color: '#1a1a1a', display: 'flex', alignItems: 'center', gap: '0.4rem',
+          fontWeight: 600, fontSize: '0.9rem', color: '#1a1a1a',
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
         }}
       >
         <span style={{ fontSize: '0.75rem' }}>{open ? '▼' : '▶'}</span>
@@ -176,17 +185,66 @@ function Th({ children, style }: { children: React.ReactNode; style?: React.CSSP
   )
 }
 
+function InputField({
+  label, value, onChange, placeholder, disabled,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  disabled?: boolean
+}) {
+  return (
+    <div style={{ marginTop: '0.6rem' }}>
+      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>
+        {label}
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          padding: '0.35rem 0.5rem', fontSize: '0.85rem',
+          border: '1px solid #ccc', borderRadius: 3,
+          background: disabled ? '#f8f8f8' : '#fff',
+          fontFamily: 'inherit',
+        }}
+      />
+    </div>
+  )
+}
+
+function MonoValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ marginBottom: '0.25rem', fontSize: '0.8rem' }}>
+      <span style={{ color: '#555', marginRight: '0.4rem' }}>{label}</span>
+      <code style={{ fontSize: '0.78rem', background: '#f4f4f4', padding: '1px 5px', borderRadius: 2, wordBreak: 'break-all' }}>
+        {value}
+      </code>
+    </div>
+  )
+}
+
 // ── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [apiStatus, setApiStatus] = useState<'checking' | 'ok' | 'offline'>('checking')
   const [file, setFile] = useState<File | null>(null)
-  const [aupChecked, setAupChecked] = useState(false)
-  const [aupTimestamp, setAupTimestamp] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+
+  // AUP fields
+  const [aupChecked, setAupChecked]       = useState(false)
+  const [aupTimestamp, setAupTimestamp]   = useState<string>('')
+  const [aupAcceptedBy, setAupAcceptedBy] = useState('')
+  const [aupVersion, setAupVersion]       = useState(AUP_VERSION)
+  const [aupRefId, setAupRefId]           = useState('')
+
+  const [loading, setLoading]             = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
-  const [result, setResult] = useState<AnalysisResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [result, setResult]               = useState<AnalysisResult | null>(null)
+  const [error, setError]                 = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -194,6 +252,16 @@ export default function App() {
       .then(() => setApiStatus('ok'))
       .catch(() => setApiStatus('offline'))
   }, [])
+
+  function buildAup(): AupFields {
+    return {
+      accepted:    aupChecked,
+      acceptedBy:  aupAcceptedBy || 'Not recorded',
+      timestamp:   aupTimestamp  || new Date().toISOString(),
+      version:     aupVersion    || AUP_VERSION,
+      referenceId: aupRefId      || `web-ui-${Date.now()}`,
+    }
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null
@@ -205,7 +273,7 @@ export default function App() {
   function handleAupChange(e: React.ChangeEvent<HTMLInputElement>) {
     const checked = e.target.checked
     setAupChecked(checked)
-    setAupTimestamp(checked ? new Date().toISOString() : null)
+    setAupTimestamp(checked ? new Date().toISOString() : '')
   }
 
   async function handleRunAnalysis() {
@@ -214,7 +282,7 @@ export default function App() {
     setError(null)
     setResult(null)
     try {
-      const data = await analyseFile(file)
+      const data = await analyseFile(file, buildAup())
       setResult(data)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -225,14 +293,15 @@ export default function App() {
   }
 
   async function handleGenerateReport() {
-    if (!file || !aupTimestamp) return
+    if (!file || !aupChecked) return
     setReportLoading(true)
     try {
-      const blob = await generateReport(file, aupTimestamp, 'web-ui-v1')
+      const blob = await generateReport(file, buildAup())
+      const reportId = result?.report_id ?? 'report'
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'finalogic-preaudit-report.pdf'
+      a.download = `${reportId}.pdf`
       a.click()
       URL.revokeObjectURL(url)
     } catch (err: unknown) {
@@ -257,12 +326,12 @@ export default function App() {
         Results cannot be submitted to any regulatory authority.
       </div>
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '2rem 1rem' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '2rem 1rem' }}>
 
         {/* Header */}
         <header style={{ marginBottom: '2rem' }}>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 700, margin: '0 0 0.25rem' }}>
-            Finalogic Pre-Audit RNG Readiness Tool
+            MiniLab RNG Engine
           </h1>
           <p style={{ margin: 0, color: '#555', fontSize: '0.9rem', fontStyle: 'italic' }}>
             Pre-Audit Readiness Assessment — Not an Accredited Audit
@@ -274,13 +343,13 @@ export default function App() {
             }} />
             <span style={{ color: '#555' }}>
               {apiStatus === 'checking' ? 'Checking engine…'
-                : apiStatus === 'ok' ? 'Engine online (localhost:8081)'
+                : apiStatus === 'ok'      ? 'Engine online (localhost:8081)'
                 : 'Engine offline — start: python -m uvicorn main:app --port 8081'}
             </span>
           </div>
         </header>
 
-        {/* Upload card */}
+        {/* Upload + AUP card */}
         <div style={{
           background: '#fff', border: '1px solid #dee2e6', borderRadius: 6,
           padding: '1.5rem', marginBottom: '1.5rem',
@@ -307,19 +376,56 @@ export default function App() {
 
           {file && <SizeAlert bytes={file.size} />}
 
-          <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-            <input
-              id="aup"
-              type="checkbox"
-              checked={aupChecked}
-              onChange={handleAupChange}
-              style={{ marginTop: 2, flexShrink: 0 }}
-            />
-            <label htmlFor="aup" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
-              I have read and agree to the{' '}
-              <strong>Finalogic Acceptable Use Policy</strong>.
-              This tool is not an accredited audit and results cannot be used for regulatory submissions.
-            </label>
+          {/* AUP section */}
+          <div style={{
+            marginTop: '1.25rem', background: '#f9f9f9',
+            border: '1px solid #e0e0e0', borderRadius: 4, padding: '1rem',
+          }}>
+            <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 700 }}>
+              Acceptable Use Policy
+            </h3>
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <input
+                id="aup"
+                type="checkbox"
+                checked={aupChecked}
+                onChange={handleAupChange}
+                style={{ marginTop: 3, flexShrink: 0 }}
+              />
+              <label htmlFor="aup" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                I have read and agree to the <strong>MiniLab Acceptable Use Policy ({AUP_VERSION})</strong>.
+                This tool is not an accredited audit and results cannot be used for regulatory submissions.
+              </label>
+            </div>
+
+            {aupChecked && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+                <InputField
+                  label="Accepted by (name / organisation) *"
+                  value={aupAcceptedBy}
+                  onChange={setAupAcceptedBy}
+                  placeholder="e.g. Jane Smith, Acme Ltd"
+                />
+                <InputField
+                  label="Acceptance timestamp (UTC)"
+                  value={aupTimestamp}
+                  onChange={setAupTimestamp}
+                  disabled
+                />
+                <InputField
+                  label="AUP version"
+                  value={aupVersion}
+                  onChange={setAupVersion}
+                />
+                <InputField
+                  label="Reference / job ID (optional)"
+                  value={aupRefId}
+                  onChange={setAupRefId}
+                  placeholder="e.g. PROJ-001"
+                />
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -329,8 +435,8 @@ export default function App() {
               style={{
                 background: canRun ? '#155724' : '#aaa', color: '#fff',
                 border: 'none', borderRadius: 4, padding: '0.5rem 1.25rem',
-                fontFamily: 'inherit', fontSize: '0.9rem', cursor: canRun ? 'pointer' : 'default',
-                fontWeight: 600,
+                fontFamily: 'inherit', fontSize: '0.9rem',
+                cursor: canRun ? 'pointer' : 'default', fontWeight: 600,
               }}
             >
               {loading ? 'Analysing…' : 'Run Analysis'}
@@ -339,7 +445,7 @@ export default function App() {
             {result && (
               <button
                 onClick={handleGenerateReport}
-                disabled={reportLoading || !aupTimestamp}
+                disabled={reportLoading || !aupChecked}
                 style={{
                   background: reportLoading ? '#aaa' : '#1a1a1a', color: '#fff',
                   border: 'none', borderRadius: 4, padding: '0.5rem 1.25rem',
@@ -369,13 +475,13 @@ export default function App() {
           </div>
         )}
 
-        {/* Loading spinner */}
+        {/* Loading */}
         {loading && (
           <div style={{
             background: '#fff', border: '1px solid #dee2e6', borderRadius: 6,
             padding: '2rem', textAlign: 'center', color: '#555', marginBottom: '1.5rem',
           }}>
-            Running analysis — this may take a minute for large files…
+            Running analysis — this may take 30–120 seconds depending on file size…
           </div>
         )}
 
@@ -383,21 +489,49 @@ export default function App() {
         {result && !loading && (
           <div style={{ background: '#fff', border: '1px solid #dee2e6', borderRadius: 6, padding: '1.5rem' }}>
 
-            {/* Header */}
-            <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid #eee' }}>
-              <div style={{ fontSize: '0.85rem', color: '#555' }}>
+            {/* Report metadata block */}
+            <div style={{
+              marginBottom: '1.25rem', paddingBottom: '1rem',
+              borderBottom: '1px solid #eee',
+            }}>
+              <h3 style={{ margin: '0 0 0.6rem', fontSize: '0.95rem', fontWeight: 700 }}>
+                Report Metadata
+              </h3>
+              <MonoValue label="Report ID"    value={result.report_id} />
+              <MonoValue label="SHA-256"      value={result.input_sha256} />
+              <MonoValue label="Tool"         value={result.tool_version} />
+              <MonoValue label="Methodology"  value={result.methodology_version} />
+              <div style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#555' }}>
                 <strong>File:</strong> {result.filename} &nbsp;·&nbsp;
+                <strong>Size:</strong> {(result.input_size_bits / 1_000_000).toFixed(2)}M bits ({(result.input_size_bytes / 1024).toFixed(1)} KB) &nbsp;·&nbsp;
                 <strong>Generated:</strong> {new Date(result.generated_at).toLocaleString()} &nbsp;·&nbsp;
-                <strong>Mode:</strong> {result.nist_result.level2 ? `Multi-sequence Level-2 (${result.nist_result.level2.n_sequences} sequences)` : 'Single-sequence'}
+                <strong>Mode:</strong> {result.nist_result.level2
+                  ? `Multi-sequence Level-2 (${result.nist_result.level2.n_sequences} sequences)`
+                  : 'Single-sequence'}
               </div>
               {result.nist_result.sample_info.warnings.map((w, i) => (
                 <div key={i} style={{
                   marginTop: '0.4rem', fontSize: '0.8rem', color: '#856404',
-                  background: '#fff3cd', border: '1px solid #ffeeba', borderRadius: 3, padding: '0.3rem 0.6rem',
+                  background: '#fff3cd', border: '1px solid #ffeeba',
+                  borderRadius: 3, padding: '0.3rem 0.6rem',
                 }}>
                   ⚠ {w}
                 </div>
               ))}
+            </div>
+
+            {/* Label legend */}
+            <div style={{
+              marginBottom: '1.25rem', fontSize: '0.78rem', color: '#555',
+              display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center',
+            }}>
+              <strong style={{ marginRight: '0.25rem' }}>Legend:</strong>
+              <Badge status="PASS" />
+              <Badge status="BORDERLINE" />
+              <Badge status="FAIL" />
+              <Badge status="INDICATIVE_ONLY" label="INDICATIVE ONLY" />
+              <Badge status="INCONCLUSIVE" />
+              <Badge status="NOT_RUN" label="NOT RUN" />
             </div>
 
             {/* Jurisdiction matrix */}
@@ -416,6 +550,7 @@ export default function App() {
                     <Th>Test Name</Th>
                     <Th>P-Value</Th>
                     <Th>Status</Th>
+                    <Th>Detail</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -455,7 +590,9 @@ export default function App() {
                           <td style={{ padding: '4px 8px', fontSize: '0.78rem' }}>{t.name}</td>
                           <td style={{ padding: '4px 8px', fontSize: '0.78rem', fontFamily: 'monospace' }}>
                             {t.n_passing}/{t.n_sequences}
-                            {t.proportion_passing !== null ? ` (${(t.proportion_passing * 100).toFixed(1)}%)` : ''}
+                            {t.proportion_passing !== null
+                              ? ` (${(t.proportion_passing * 100).toFixed(1)}%)`
+                              : ''}
                           </td>
                           <td style={{ padding: '4px 8px' }}><Badge status={t.proportion_result} /></td>
                           <td style={{ padding: '4px 8px', fontSize: '0.78rem', fontFamily: 'monospace' }}>
@@ -470,7 +607,7 @@ export default function App() {
               )
             })()}
 
-            {/* Extended tests */}
+            {/* Supplementary tests */}
             {result.supplementary_result?.tests?.length > 0 && (
               <CollapsibleSection title={`Extended Statistical Tests (${result.supplementary_result.tests.length} tests)`}>
                 <p style={{ fontSize: '0.78rem', color: '#777', fontStyle: 'italic', margin: '0 0 0.5rem' }}>
@@ -494,6 +631,17 @@ export default function App() {
                 </TableWrap>
               </CollapsibleSection>
             )}
+
+            {/* AUP record */}
+            <CollapsibleSection title="AUP Record">
+              <div style={{ fontSize: '0.8rem', lineHeight: 1.8, color: '#444' }}>
+                <div><strong>Accepted:</strong> {result.aup.accepted ? 'Yes' : 'No'}</div>
+                <div><strong>Accepted by:</strong> {result.aup.accepted_by}</div>
+                <div><strong>Timestamp (UTC):</strong> {result.aup.acceptance_timestamp_utc}</div>
+                <div><strong>AUP version:</strong> {result.aup.aup_version}</div>
+                <div><strong>Reference ID:</strong> {result.aup.aup_reference_id}</div>
+              </div>
+            </CollapsibleSection>
 
           </div>
         )}
