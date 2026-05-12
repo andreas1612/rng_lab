@@ -398,7 +398,7 @@ Full spec: `docs/development/TEST_MODULE_SPEC.md`
 | AUP capture | ✅ | ✅ | Not legally binding |
 | Dieharder (~114 tests) | ✅ | ❌ blocked | Docker/WSL needed |
 | TestU01 BigCrush (106 tests) | ✅ | ❌ | Not implemented |
-| Sample size 1B–10B bits | ✅ | ❌ (~100M practical) | Performance |
+| Sample size 1B–10B bits | ✅ | ⚠️ No hard cap — performance limited | Sequential: 12.5MB=6hrs; after parallelisation: 125MB=~8hrs |
 | RTP verification | ✅ | ❌ Sprint 6 | Research needed |
 | Physical entropy review | ✅ | ❌ Hardware | Not applicable |
 | Source code review | ✅ | ❌ Out of scope | By design |

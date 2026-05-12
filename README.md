@@ -55,7 +55,7 @@ Upload a binary RNG output file. The tool:
 | Jurisdiction scoring | ✅ | ✅ (4 jurisdictions) |
 | Dieharder (~114 tests) | ✅ | ❌ blocked |
 | TestU01 BigCrush (106 tests) | ✅ | ❌ not implemented |
-| Sample size 1B–10B bits | ✅ | ❌ practical max ~100M bits |
+| Sample size 1B–10B bits | ✅ | ⚠️ No hard cap — sequential perf limits today to ~100M bits; ~1B bits feasible after parallelisation (Sprint 4.5) |
 | RTP verification | ✅ | ❌ Sprint 5 |
 | Physical entropy verification | ✅ | ❌ hardware — not applicable |
 | Accredited certificate | ✅ | ❌ by design |
