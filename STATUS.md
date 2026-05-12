@@ -1,6 +1,6 @@
 # Project Status
 
-## Current Phase: Sprint 4 Complete — Full UI Working | Sprint 4.5 In Progress (RNG Perfection)
+## Current Phase: Sprint 5 Complete — MiniLab RNG Engine v0.1.0 (architecture refactor + MVP RNG-001..009)
 
 ---
 
@@ -297,3 +297,45 @@ Further research is required before implementation. See open questions below.
 | 2026-05-11 | NIST parallelisation deferred pending implementation | 15 tests run sequentially; good RNG 200KB takes 142s. Fix: ThreadPoolExecutor. Tracked in Sprint 4.5-A. |
 | 2026-05-11 | RTP testing deferred to Sprint 5 pending research | Cannot verify RTP from RNG binary alone — requires game math context. Level 1 (declaration check) is feasible; Level 2 (simulation) needs game config schema design. Research questions logged in Sprint 5. |
 | 2026-05-11 | Bad RNG correctly detected | 00/FF alternating pattern: 12–13/15 NIST FAIL, all supplementary FAIL, all jurisdictions FAIL. p=-0.0000 on Block Frequency is float underflow display artefact, not a bug. |
+| 2026-05-12 | Tool renamed to MiniLab RNG Engine v0.1.0 | Sprint 5 refactor — tool/methodology version constants centralised in `core/labels.py`. |
+| 2026-05-12 | Six-label scheme replaces 4-status scheme | PASS / BORDERLINE / FAIL / NOT_RUN / INDICATIVE_ONLY / INCONCLUSIVE. The string "WARNING" is no longer used as a status anywhere. |
+| 2026-05-12 | Tests modularised — one file per test | 15 NIST files under `src/engine/nist/tests/`, 8 supplementary files under `src/engine/supplementary/tests/`. Every test exports TEST_ID/TEST_NAME/MIN_BITS/RECOMMENDED_BITS/run(). |
+| 2026-05-12 | Single source of truth for labels and thresholds | `core/labels.py::classify_p_value()` is the only classifier. No module hard-codes p-values. |
+| 2026-05-12 | Report ID, SHA-256, AUP record added | Every run produces RPT-XXXXXXXXXXXX, SHA-256 of input, ReportMetadata + AUPRecord dataclasses. DRAFT watermark drawn when AUP incomplete. |
+| 2026-05-12 | Evidence JSON saved per report | `<report_id>.json` saved alongside the PDF in temp dir; path returned via `X-Evidence-JSON-Path` response header. |
+
+---
+
+## Sprint 5 — MiniLab RNG Engine v0.1.0 (COMPLETE — 2026-05-12)
+
+Workstream 1 — Architecture refactor (test modularisation):
+- [x] Created `src/engine/core/` with `labels.py` (TOOL_VERSION, METHODOLOGY_VERSION, 6-label scheme, classify_p_value, LEGEND, SCOPE_LIMITATION), `models.py` (AUPRecord, ReportMetadata), `report_id.py` (generate_report_id).
+- [x] Created `src/engine/nist/tests/` with 15 per-test files (t01..t15) plus a shared `_wrap.py` invoking the upstream sp800_22 functions.
+- [x] Created `src/engine/supplementary/tests/` with 8 per-test files (s01..s08). Extracted from the previous `supplementary/tests.py`. Kept the tie-filter fix, grid chi-square fix, and the autocorrelation ≤1-lag threshold.
+- [x] Deleted `src/engine/supplementary/tests.py`.
+- [x] Rewrote `nist/runner.py` to dispatch the per-test modules and use the new label constants.
+- [x] Rewrote `supplementary/__init__.py` to iterate the new modules.
+
+Workstream 2 — MVP RNG-001 to RNG-009:
+- [x] `main.py` bumped to API version 0.5.0, app title "MiniLab RNG Engine".
+- [x] `/analyse` and `/report` accept all 5 AUP form fields (`aup_accepted`, `aup_accepted_by`, `aup_acceptance_timestamp`, `aup_version_field`, `aup_reference_id`).
+- [x] `_run_analysis` computes the SHA-256, allocates a Report ID, builds an AUPRecord.
+- [x] Response JSON / headers expose `report_id`, `input_sha256`, `tool_version`, `methodology_version`.
+- [x] `report/generator.py`: 6-label badge palette (BORDERLINE = orange, INDICATIVE_ONLY = blue, INCONCLUSIVE/NOT_RUN = grey), Results Legend, Scope Limitation section, expanded metadata block with all 5 AUP fields, DRAFT diagonal watermark when AUP is incomplete.
+- [x] `report/gap_analysis.py` and `scoring.py` migrated to label constants — no "warning" string literals remain as status values.
+- [x] New `report/json_output.py`: `build_evidence_json` + `save_evidence_json`. The `/report` endpoint saves `<report_id>.json` and returns the path via `X-Evidence-JSON-Path`.
+
+Workstream 3 — Documentation:
+- [x] `docs/methodology/METHODOLOGY_v0.1.md` — full methodology.
+- [x] `docs/methodology/THRESHOLD_SCHEME.md` — threshold rationale.
+- [x] `docs/algorithms/NIST_SP800_22.md` — per-test reference (15 entries).
+- [x] `docs/algorithms/SUPPLEMENTARY_TESTS.md` — per-test reference (8 entries) with the implementation fixes called out.
+- [x] `docs/audit_comparison/REAL_AUDIT_COVERAGE.md` — capability matrix vs accredited lab.
+- [x] `docs/development/ARCHITECTURE.md` — component diagram, data flow, module dependency map, how to add a test / jurisdiction.
+- [x] `docs/development/TEST_MODULE_SPEC.md` — contract every test module must implement, with a worked example.
+
+Sprint 5 verification:
+- [x] `from core.labels import classify_p_value; from core.models import AUPRecord` succeeds.
+- [x] All 15 files present in `src/engine/nist/tests/` and all 8 in `src/engine/supplementary/tests/`.
+- [x] No "WARNING" or "warning" string remains as a status value (`grep` returns nothing).
+- [x] End-to-end smoke test on `good.bin`: all 15 NIST tests run, 8 supplementary tests run, jurisdictions scored, PDF generated, evidence JSON saved (DRAFT mode tested separately and produces a watermarked PDF).

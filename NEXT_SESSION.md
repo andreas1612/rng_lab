@@ -1,268 +1,89 @@
-# Next Session Prompt — Finalogic Pre-Audit Tool
+# Next Session
 
-Paste this entire file as your first message in the next Claude Code session.
+Last update: 2026-05-12 — end of Sprint 5.
 
----
+## Current state
 
-## Project
+- Tool name: **MiniLab RNG Engine v0.1.0**
+- Methodology: `MiniLab-RNG-Methodology-v0.1`
+- API version: `0.5.0`
+- Test architecture: one file per test, dispatched by `nist/runner.py` and
+  `supplementary/__init__.py`. 15 NIST + 8 supplementary = 23 test modules.
+- Single source of truth for labels and thresholds: `src/engine/core/labels.py`.
+- AUP record + Report ID + SHA-256 + evidence JSON are all produced on every
+  run. The PDF carries a DRAFT watermark when the AUP record is incomplete.
+- No `"WARNING"` status string remains anywhere in `src/engine/`.
 
-**Finalogic Pre-Audit RNG Readiness Tool**  
-A web application that runs RNG binary output through statistical test suites and scores results
-against 4 iGaming regulatory jurisdictions (MGA, UKGC, Denmark, Canada CGA). Produces a
-downloadable PDF Pre-Audit Readiness Report. NOT an accredited audit tool.
+## What works end-to-end
 
-**Working directory:**
-```
-C:\Users\Andreas.Pi\Downloads\iGaming TestingLabs Research\finalogic-preaudit-tool\
-```
+Smoke verified on `good.bin` (1.6 Mbit synthetic):
 
-Read CLAUDE.md first. Then STATUS.md. Then this file.
+- `core.labels.classify_p_value` returns PASS / BORDERLINE / FAIL /
+  INCONCLUSIVE on the right inputs.
+- All 15 NIST tests dispatch and produce p-values.
+- All 8 supplementary tests run, including the autocorrelation 1-lag tolerance
+  fix, the permutations tie-filter, and the 2D grid chi-square form.
+- Jurisdiction scoring runs against MGA / UKGC / DGA / CGA.
+- PDF generation succeeds in both AUP-complete and DRAFT modes.
+- `<report_id>.json` is written to the temp dir; path returned via
+  `X-Evidence-JSON-Path` header.
 
----
+## Open items / next sprint candidates
 
-## What Is Complete and Working
+1. **UI integration** — the React UI in `src/ui/` still calls the old
+   endpoint shape and old status strings. The UI needs:
+   - Five new form fields for the AUP record on submit.
+   - Updated status badge colours to match the 6-label scheme.
+   - Show the Report ID, SHA-256, tool/methodology version on the result page.
+2. **Persistence of evidence JSON** — currently saved to `tempfile.gettempdir()`
+   which is volatile. Decide on a storage location (per-tenant folder?) and
+   wire the path into the response body rather than only into a header.
+3. **Backward-compatibility shim for legacy clients** — the response payload
+   field `tests_warning` is still emitted as an alias of `tests_borderline` in
+   `scoring.py`. Schedule removal once UI catches up.
+4. **TestU01 / Diehard / PractRand** — still deferred. Track in the algorithms
+   doc as future supplementary tests if any are added.
+5. **Real audit comparison page in the UI** — surface the
+   `REAL_AUDIT_COVERAGE.md` matrix to the operator on the result page.
 
-**Sprints 0–4 complete. Sprint 4.5 in progress. The tool is end-to-end working.**
+## File map (Sprint 5 deltas)
 
-**To run the tool:**
+New:
 
-```powershell
-# Terminal 1 — backend
-# Note: port 8081 may already be occupied from a previous session.
-# Check first: curl.exe -s http://localhost:8081/health
-# If occupied, use 8082:
-cd "C:\Users\Andreas.Pi\Downloads\iGaming TestingLabs Research\finalogic-preaudit-tool\src\engine"
-python -m uvicorn main:app --port 8081
-# or: python -m uvicorn main:app --port 8082
+- `src/engine/core/__init__.py`
+- `src/engine/core/labels.py`
+- `src/engine/core/models.py`
+- `src/engine/core/report_id.py`
+- `src/engine/nist/tests/__init__.py`
+- `src/engine/nist/tests/_wrap.py`
+- `src/engine/nist/tests/t01_frequency.py` ... `t15_random_excursions_variant.py`
+- `src/engine/supplementary/tests/__init__.py`
+- `src/engine/supplementary/tests/s01_chi_square_byte.py` ... `s08_bit_independence.py`
+- `src/engine/report/json_output.py`
+- `docs/methodology/METHODOLOGY_v0.1.md`
+- `docs/methodology/THRESHOLD_SCHEME.md`
+- `docs/algorithms/NIST_SP800_22.md`
+- `docs/algorithms/SUPPLEMENTARY_TESTS.md`
+- `docs/audit_comparison/REAL_AUDIT_COVERAGE.md`
+- `docs/development/ARCHITECTURE.md`
+- `docs/development/TEST_MODULE_SPEC.md`
 
-# Terminal 2 — frontend (NODE_OPTIONS needed for corporate SSL)
-cd "C:\Users\Andreas.Pi\Downloads\iGaming TestingLabs Research\finalogic-preaudit-tool\src\ui"
-NODE_OPTIONS=--use-system-ca npm run dev
-# Open: http://localhost:5173
-```
+Modified:
 
-**Quick smoke test (use whichever port the backend is on):**
-```powershell
-cd "C:\Users\Andreas.Pi\Downloads\iGaming TestingLabs Research\finalogic-preaudit-tool\src\engine"
-python -c "import os; open('test_rng.bin','wb').write(os.urandom(200000))"
-curl.exe -s -X POST http://localhost:8081/analyse -F "file=@test_rng.bin" -o result.json
-python "C:\Users\Andreas.Pi\smoke_check.py" result.json
-curl.exe -X POST http://localhost:8081/report -F "file=@test_rng.bin" -o report.pdf
-```
-Expected: /analyse ~30–140s (see benchmarks below), returns JSON with 15 NIST tests +
-8 supplementary tests + 4 jurisdiction scores. /report returns a valid PDF (~12 KB).
+- `src/engine/main.py` (AUP form fields, report_id, sha256, evidence JSON, headers)
+- `src/engine/scoring.py` (label constants, threshold constants)
+- `src/engine/nist/runner.py` (dispatches test modules; label-aware Level-2)
+- `src/engine/supplementary/__init__.py` (iterates new ALL_TESTS)
+- `src/engine/report/generator.py` (6-label palette, legend, scope, metadata, DRAFT)
+- `src/engine/report/gap_analysis.py` (label constants)
+- `STATUS.md` (Sprint 5 section)
 
----
+Deleted:
 
-## Completed Files
+- `src/engine/supplementary/tests.py`
 
-| File | Status |
-|---|---|
-| src/engine/main.py | Complete — /health, /analyse, /report (v0.4.0) |
-| src/engine/scoring.py | Complete — 4 jurisdictions, clean RTP logic |
-| src/engine/nist/runner.py | Complete — 15 NIST tests + multi-sequence Level-2 + updated thresholds |
-| src/engine/nist/sp800_22_tests/ | Cloned from dj-on-github — do not modify |
-| src/engine/supplementary/__init__.py | Complete |
-| src/engine/supplementary/tests.py | Complete — 8 supplementary tests |
-| src/engine/report/generator.py | Complete — Level-2 table + Extended Tests table sections |
-| src/engine/report/gap_analysis.py | Complete — plain-English analysis, p=1.000 artifact detection |
-| src/jurisdictions/*.json | Complete — mga, ukgc, denmark, canada_cga |
-| src/engine/requirements.txt | Complete — fastapi, uvicorn, numpy, scipy, jinja2, reportlab |
-| src/ui/src/App.tsx | Complete — full UI: upload, AUP, results panel, report download |
-| src/ui/src/api/client.ts | Complete — typed API client, relative URLs via Vite proxy |
-| src/ui/vite.config.ts | Complete — proxy target: localhost:8081 |
-| C:\Users\Andreas.Pi\smoke_check.py | Helper — pretty-prints /analyse JSON response |
+## How to resume
 
----
-
-## Environment Constraints — Critical
-
-| Constraint | Detail |
-|---|---|
-| **No admin access** | Corporate laptop — cannot install system packages, GTK3, or enable Windows features |
-| **WSL blocked** | WSL2 optional Windows feature is not enabled — requires admin to turn on. Do not attempt. |
-| **Dieharder blocked** | Requires Linux/WSL — deferred until Docker is available |
-| **PractRand blocked** | Binary not placed — deferred |
-| **WeasyPrint blocked** | Needs GTK3 DLLs — use ReportLab only |
-| **Docker** | Not available as of 2026-05-08. Run `docker --version` to check again before Sprint 4.5-C. |
-| **Backend port** | Port 8081 preferred. If occupied from previous session, use 8082. |
-| **Node.js** | Node 24.15.0 installed via winget (no admin). Use `NODE_OPTIONS=--use-system-ca` for npm. |
-| **PowerShell curl** | Use `curl.exe` — PowerShell's built-in `curl` is `Invoke-WebRequest` and behaves differently. |
-
----
-
-## Key Technical Decisions — Do Not Revisit
-
-| Decision | Why |
-|---|---|
-| ReportLab (not WeasyPrint) | WeasyPrint needs GTK3 — admin blocked |
-| UKGC lab standard: ISO/IEC 17025 | 17025 = testing labs; 17065 = product certification bodies (wrong) |
-| Canada RTP 85% = Ontario baseline only | Provincial floors vary — not authoritative nationally |
-| NIST stdout suppressed via redirect_stdout | Library prints to stdout — would pollute API logs |
-| Port 8081 (fallback 8082) | Port 8000 occupied |
-| p ≥ 0.05 = pass, 0.01–0.05 = warning, < 0.01 = fail | Matches jurisdiction threshold configs |
-| Minimum Distance 2D = grid chi-square | Exp(π·n) NN model fails on bounded square due to boundary effects — replaced |
-| Overlapping Permutations tie-filtering | numpy argsort resolves ties deterministically → false fails — windows with duplicate bytes dropped |
-| Autocorrelation threshold: ≤1 lag = pass | 20 lags at 95% CI → ~1 false positive expected under H0 — threshold adjusted |
-| RTP deferred to Sprint 5 | Cannot verify RTP from RNG binary alone; requires game math context + further research |
-
----
-
-## Performance Benchmarks (2026-05-11)
-
-Timed on corporate laptop, sequential NIST execution:
-
-| File | Size | /analyse time |
-|---|---|---|
-| bad.bin (00/FF alternating) | 200 KB | 31.9s |
-| good.bin (os.urandom) | 200 KB | 141.9s |
-| large.bin (os.urandom) | 12.5 MB Level-2 | ~4–6 hrs (pre-fix) |
-
-**Root cause:** 15 NIST tests run sequentially. Good random data requires full computation;
-structured data resolves faster. Fix in Sprint 4.5-A: ThreadPoolExecutor parallelisation.
-
-**After fix targets:** 200KB good RNG → ~30s. 12.5MB Level-2 → ~30–60 min.
-
----
-
-## Current Sprint: 4.5 — RNG Perfection
-
-### 4.5-A — Parallelise NIST Tests (PRIORITY 1)
-
-**File:** `src/engine/nist/runner.py`
-
-In `_run_tests_on_bits(bits)`, replace the sequential loop over `TEST_FUNCTIONS` with
-a `concurrent.futures.ThreadPoolExecutor`. numpy releases the GIL during computation
-so threading gives real speedup on this workload.
-
-Key constraints:
-- Each thread must suppress its own stdout (redirect_stdout with io.StringIO per call)
-- Return order must be preserved (use `executor.map` or sort by index)
-- Must not break existing schema — return same dict shape
-
-Rough structure:
-```python
-from concurrent.futures import ThreadPoolExecutor
-import io
-from contextlib import redirect_stdout
-
-def _run_single_test(args):
-    test_fn, bits = args
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        result = test_fn(bits)
-    return result
-
-def _run_tests_on_bits(bits):
-    args = [(fn, bits) for fn in TEST_FUNCTIONS]
-    with ThreadPoolExecutor(max_workers=15) as ex:
-        results = list(ex.map(_run_single_test, args))
-    return results
-```
-
-After implementing, rerun benchmarks:
-```powershell
-Measure-Command { curl.exe -s -X POST http://localhost:808x/analyse -F "file=@good.bin" -o good_result2.json }
-```
-
-### 4.5-B — Result Caching (PRIORITY 2)
-
-`/report` re-runs the full analysis, doubling total time. Fix: cache analysis result
-keyed on SHA-256 of the uploaded file, TTL 10 minutes. `/report` hits cache if same
-file was recently analysed.
-
-**File:** `src/engine/main.py`
-
-```python
-import hashlib, time
-_cache: dict = {}   # {sha256: (timestamp, result_dict)}
-CACHE_TTL = 600     # 10 minutes
-
-def _cache_get(sha256):
-    entry = _cache.get(sha256)
-    if entry and time.time() - entry[0] < CACHE_TTL:
-        return entry[1]
-    return None
-
-def _cache_set(sha256, result):
-    _cache[sha256] = (time.time(), result)
-```
-
-Compute SHA-256 from the temp file bytes after upload. Check cache before running
-analysis. Store result after analysis. Both `/analyse` and `/report` use the same helper.
-
-### 4.5-C — Dieharder via Docker (CONDITIONAL)
-
-Run `docker --version`. If Docker Desktop is running:
-- Create `src/engine/dieharder/runner.py`
-- Spins `python:3.11-slim` container, installs dieharder, mounts temp file
-- Runs `dieharder -a`, captures stdout, parses into structured results
-- Adds `dieharder_result` to API response
-- Adds "Dieharder Results" PDF section
-- ~114 additional tests — biggest single quality jump
-
-If Docker not available: skip, note in STATUS.md.
-
-### 4.5-D — Level-2 Large File Smoke Test
-
-Run after 4.5-A is complete:
-```powershell
-python -c "import os; open('large.bin','wb').write(os.urandom(12_500_000))"
-Measure-Command { curl.exe -s -X POST http://localhost:808x/analyse -F "file=@large.bin" -o large_result.json }
-python "C:\Users\Andreas.Pi\smoke_check.py" large_result.json
-```
-Verify: `Level-2 mode: YES`, proportion and uniformity results present, all checks complete.
-
----
-
-## Sprint 5 — RTP Component (RESEARCH REQUIRED)
-
-**Do not implement until research questions are answered. See STATUS.md Sprint 5 section.**
-
-RTP cannot be verified from raw RNG binary output alone. Three implementation levels exist:
-1. **Level 1** — Declaration validation (operator declares RTP, tool checks against floors/ceilings)
-2. **Level 2** — Empirical simulation (operator provides game config + RNG binary; tool simulates rounds)
-3. **Level 3** — Out of scope
-
-Known jurisdiction floors: MGA 92%, UKGC 78%, DGA 90%, Canada CGA 85% (Ontario only).
-
-Open research questions before any code:
-- Exact MGA RTP floors per game category (slots / table / video poker / live)
-- Whether UKGC publishes a formal minimum or relies on "fair and transparent" principle
-- DGA floor for live dealer vs RNG games
-- Standard game config schema used by labs
-- Accepted statistical tolerance for empirical RTP verification
-- Whether any jurisdiction requires volatility (variance) testing alongside RTP
-
----
-
-## Coverage vs Real Audit
-
-| Capability | Real Lab | Our Tool |
-|---|---|---|
-| NIST SP 800-22 (15 tests) | ✅ | ✅ |
-| Multi-sequence Level-2 | ✅ | ✅ (≥12.5 MB) |
-| 8 supplementary tests | Partial | ✅ |
-| Jurisdiction scoring 4 JDs | ✅ | ✅ |
-| PDF readiness report | ✅ | ✅ |
-| Dieharder (~114 tests) | ✅ | ❌ blocked |
-| TestU01 BigCrush (106 tests) | ✅ | ❌ not implemented |
-| PractRand | ✅ | ❌ binary not placed |
-| Sample size 1B–10B bits | ✅ | ❌ practical max ~100M bits |
-| RTP verification | ✅ | ❌ deferred Sprint 5 |
-| Physical entropy verification | ✅ | ❌ hardware — not applicable |
-| Accredited certificate | ✅ | ❌ by design |
-
-**Coverage: ~40% of a real audit.** Sufficient to find obvious flaws and prepare for submission.
-
----
-
-## File Reading Order at Session Start
-
-1. `CLAUDE.md` — project guide and DO NOT list
-2. `STATUS.md` — sprint log with benchmarks and known issues
-3. `NEXT_SESSION.md` — this file
-4. `src/engine/nist/runner.py` — NIST runner (target of 4.5-A parallelisation)
-5. `src/engine/main.py` — API (target of 4.5-B caching)
-6. `src/engine/scoring.py` — jurisdiction scorer
-7. `src/engine/report/generator.py` — PDF builder
+Read `docs/methodology/METHODOLOGY_v0.1.md` for the current contract, then
+`docs/development/ARCHITECTURE.md` for the wiring. To add a test, follow
+`docs/development/TEST_MODULE_SPEC.md`.

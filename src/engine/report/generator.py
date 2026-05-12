@@ -1,4 +1,5 @@
 import io
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -9,15 +10,24 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.flowables import HRFlowable
 
-# ── Colours matching the HTML template ──────────────────────────────────────
+from core.labels import (
+    LEGEND, SCOPE_LIMITATION,
+    LABEL_PASS, LABEL_BORDERLINE, LABEL_FAIL,
+    LABEL_NOT_RUN, LABEL_INDICATIVE_ONLY, LABEL_INCONCLUSIVE,
+)
+from core.models import AUPRecord, ReportMetadata  # noqa: F401  (re-export)
+
+# Colours
 C_PASS_BG    = colors.HexColor("#D4EDDA")
 C_PASS_FG    = colors.HexColor("#155724")
-C_WARN_BG    = colors.HexColor("#FFF3CD")
-C_WARN_FG    = colors.HexColor("#856404")
+C_BORD_BG    = colors.HexColor("#FFE5B4")   # orange-ish for BORDERLINE
+C_BORD_FG    = colors.HexColor("#8A4B00")
 C_FAIL_BG    = colors.HexColor("#F8D7DA")
 C_FAIL_FG    = colors.HexColor("#842029")
-C_OTHER_BG   = colors.HexColor("#E9ECEF")
-C_OTHER_FG   = colors.HexColor("#6C757D")
+C_IND_BG     = colors.HexColor("#D6E9F8")   # blue for INDICATIVE_ONLY
+C_IND_FG     = colors.HexColor("#0B4A78")
+C_GREY_BG    = colors.HexColor("#E9ECEF")
+C_GREY_FG    = colors.HexColor("#6C757D")
 C_BORDER     = colors.HexColor("#1a1a1a")
 C_LIGHT_GREY = colors.HexColor("#EEEEEE")
 
@@ -66,12 +76,28 @@ def _styles():
     }
 
 
-def _page_num(canvas, doc):
-    canvas.saveState()
-    canvas.setFont("Times-Roman", 8)
-    canvas.setFillColor(colors.HexColor("#555555"))
-    canvas.drawCentredString(A4[0] / 2, 12 * mm, f"Page {doc.page}")
-    canvas.restoreState()
+def _make_page_callback(draft: bool):
+    def _draw(canvas, doc):
+        canvas.saveState()
+        # page number
+        canvas.setFont("Times-Roman", 8)
+        canvas.setFillColor(colors.HexColor("#555555"))
+        canvas.drawCentredString(A4[0] / 2, 12 * mm, f"Page {doc.page}")
+        # DRAFT watermark if AUP incomplete
+        if draft:
+            canvas.saveState()
+            canvas.setFillColor(colors.HexColor("#808080"))
+            try:
+                canvas.setFillAlpha(0.35)
+            except Exception:
+                pass
+            canvas.setFont("Helvetica-Bold", 60)
+            canvas.translate(A4[0] / 2, A4[1] / 2)
+            canvas.rotate(35)
+            canvas.drawCentredString(0, 0, "DRAFT - INTERNAL USE ONLY")
+            canvas.restoreState()
+        canvas.restoreState()
+    return _draw
 
 
 def _disclaimer_table(styles) -> Table:
@@ -82,23 +108,73 @@ def _disclaimer_table(styles) -> Table:
         ("LEFTPADDING",  (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING",   (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 10),
     ]))
     return t
 
 
-def _badge_colours(status: str):
-    if status == "pass":
+def _badge_colours(status):
+    if status == LABEL_PASS:
         return C_PASS_BG, C_PASS_FG
-    if status == "warning":
-        return C_WARN_BG, C_WARN_FG
-    if status == "fail":
+    if status == LABEL_BORDERLINE:
+        return C_BORD_BG, C_BORD_FG
+    if status == LABEL_FAIL:
         return C_FAIL_BG, C_FAIL_FG
-    return C_OTHER_BG, C_OTHER_FG
+    if status == LABEL_INDICATIVE_ONLY:
+        return C_IND_BG, C_IND_FG
+    if status in (LABEL_NOT_RUN, LABEL_INCONCLUSIVE):
+        return C_GREY_BG, C_GREY_FG
+    return C_GREY_BG, C_GREY_FG
+
+
+def _results_legend(styles) -> Table:
+    """Framed legend section listing all 6 status labels."""
+    header = [
+        Paragraph("<b>Label</b>", styles["body"]),
+        Paragraph("<b>p-value range</b>", styles["body"]),
+        Paragraph("<b>Meaning</b>", styles["body"]),
+    ]
+    rows = [header]
+    row_styles = [("BACKGROUND", (0, 0), (-1, 0), C_LIGHT_GREY)]
+    for i, item in enumerate(LEGEND, start=1):
+        bg, fg = _badge_colours(item["label"])
+        row_styles.append(("BACKGROUND", (0, i), (0, i), bg))
+        row_styles.append(("TEXTCOLOR",  (0, i), (0, i), fg))
+        rows.append([
+            Paragraph(f"<b>{item['label']}</b>", styles["body"]),
+            Paragraph(item["range"], styles["mono"]),
+            Paragraph(item["description"], styles["small"]),
+        ])
+    tbl = Table(rows, colWidths=[32 * mm, 32 * mm, 106 * mm])
+    tbl.setStyle(TableStyle([
+        ("BOX",          (0, 0), (-1, -1), 1.0, C_BORDER),
+        ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
+        ("FONTNAME",     (0, 0), (-1, 0),  "Times-Bold"),
+        ("TOPPADDING",   (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 5),
+        ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+        *row_styles,
+    ]))
+    return tbl
+
+
+def _scope_limitation_section(styles) -> list:
+    """Returns flowables for the fixed Scope Limitation section."""
+    out = [
+        Paragraph(f"<b>{SCOPE_LIMITATION['title']}</b>", styles["h3"]),
+        Paragraph(SCOPE_LIMITATION["preamble"], styles["body"]),
+        Spacer(1, 2 * mm),
+    ]
+    for item in SCOPE_LIMITATION["exclusions"]:
+        out.append(Paragraph(f"&bull;&nbsp;{item}", styles["body"]))
+    out.append(Spacer(1, 3 * mm))
+    return out
 
 
 def _nist_table(tests: list, styles) -> Table:
     header = [
+        Paragraph("<b>Test ID</b>", styles["body"]),
         Paragraph("<b>Test Name</b>", styles["body"]),
         Paragraph("<b>P-Value</b>", styles["body"]),
         Paragraph("<b>Status</b>", styles["body"]),
@@ -109,19 +185,20 @@ def _nist_table(tests: list, styles) -> Table:
     for i, t in enumerate(tests, start=1):
         p = t.get("p_value")
         p_str = f"{p:.6f}" if p is not None else "—"
-        status = t["status"].upper()
-        bg, fg = _badge_colours(t["status"])
+        status = t["status"]
+        bg, fg = _badge_colours(status)
 
         row_colours.append(("BACKGROUND", (0, i), (-1, i), bg))
         row_colours.append(("TEXTCOLOR",  (0, i), (-1, i), fg))
 
         rows.append([
+            Paragraph(t.get("test_id", ""), styles["mono"]),
             Paragraph(t["name"], styles["body"]),
             Paragraph(p_str, styles["mono"]),
             Paragraph(f"<b>{status}</b>", styles["body"]),
         ])
 
-    tbl = Table(rows, colWidths=[95 * mm, 40 * mm, 35 * mm])
+    tbl = Table(rows, colWidths=[22 * mm, 80 * mm, 35 * mm, 33 * mm])
     tbl.setStyle(TableStyle([
         ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
         ("FONTNAME",     (0, 0), (-1, 0),  "Times-Bold"),
@@ -134,7 +211,6 @@ def _nist_table(tests: list, styles) -> Table:
 
 
 def _level2_table(level2: dict, styles) -> Table:
-    """Table for NIST Level-2 multi-sequence analysis results."""
     header = [
         Paragraph("<b>Test Name</b>", styles["body"]),
         Paragraph("<b>Sequences</b>", styles["body"]),
@@ -170,12 +246,12 @@ def _level2_table(level2: dict, styles) -> Table:
             Paragraph(t["name"], styles["small"]),
             Paragraph(str(n_seq), styles["mono"]),
             Paragraph(prop_str, styles["mono"]),
-            Paragraph(f"<b>{prop_result.upper()}</b>", styles["small"]),
+            Paragraph(f"<b>{prop_result}</b>", styles["small"]),
             Paragraph(ks_str, styles["mono"]),
-            Paragraph(f"<b>{unif_result.upper()}</b>", styles["small"]),
+            Paragraph(f"<b>{unif_result}</b>", styles["small"]),
         ])
 
-    tbl = Table(rows, colWidths=[52 * mm, 18 * mm, 32 * mm, 20 * mm, 22 * mm, 22 * mm])
+    tbl = Table(rows, colWidths=[52 * mm, 18 * mm, 32 * mm, 24 * mm, 22 * mm, 22 * mm])
     tbl.setStyle(TableStyle([
         ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
         ("FONTNAME",     (0, 0), (-1, 0),  "Times-Bold"),
@@ -188,8 +264,8 @@ def _level2_table(level2: dict, styles) -> Table:
 
 
 def _supplementary_table(tests: list, styles) -> Table:
-    """Table for extended/supplementary statistical test results."""
     header = [
+        Paragraph("<b>Test ID</b>", styles["body"]),
         Paragraph("<b>Test Name</b>", styles["body"]),
         Paragraph("<b>Statistic</b>", styles["body"]),
         Paragraph("<b>P-Value</b>", styles["body"]),
@@ -203,20 +279,21 @@ def _supplementary_table(tests: list, styles) -> Table:
         stat_str = f"{stat:.6f}" if stat is not None else "—"
         p = t.get("p_value")
         p_str = f"{p:.6f}" if p is not None else "—"
-        status = t.get("status", "error")
+        status = t.get("status", LABEL_INCONCLUSIVE)
         bg, fg = _badge_colours(status)
 
         row_colours.append(("BACKGROUND", (0, i), (-1, i), bg))
         row_colours.append(("TEXTCOLOR",  (0, i), (-1, i), fg))
 
         rows.append([
+            Paragraph(t.get("test_id", ""), styles["mono"]),
             Paragraph(t.get("name", "Unknown"), styles["body"]),
             Paragraph(stat_str, styles["mono"]),
             Paragraph(p_str, styles["mono"]),
-            Paragraph(f"<b>{status.upper()}</b>", styles["body"]),
+            Paragraph(f"<b>{status}</b>", styles["body"]),
         ])
 
-    tbl = Table(rows, colWidths=[80 * mm, 30 * mm, 30 * mm, 30 * mm])
+    tbl = Table(rows, colWidths=[22 * mm, 68 * mm, 28 * mm, 28 * mm, 24 * mm])
     tbl.setStyle(TableStyle([
         ("GRID",         (0, 0), (-1, -1), 0.4, colors.HexColor("#CCCCCC")),
         ("FONTNAME",     (0, 0), (-1, 0),  "Times-Bold"),
@@ -237,6 +314,20 @@ def generate_pdf(report_data: dict) -> bytes:
     buf = io.BytesIO()
     styles = _styles()
 
+    nd = report_data
+    ni = nd["nist_result"]["sample_info"]
+    tests = nd["nist_result"]["tests"]
+    scores = nd["jurisdiction_scores"]
+    level2 = nd["nist_result"].get("level2")
+    supp = nd.get("supplementary_result", {})
+    supp_tests = supp.get("tests", []) if supp else []
+
+    # AUP record (passed as dataclass or dict)
+    aup_record = nd.get("aup_record")
+    if aup_record is None:
+        aup_record = AUPRecord()
+    draft = not aup_record.is_complete()
+
     doc = BaseDocTemplate(
         buf,
         pagesize=A4,
@@ -247,34 +338,34 @@ def generate_pdf(report_data: dict) -> bytes:
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin,
                   doc.width, doc.height, id="main")
+    page_callback = _make_page_callback(draft)
     doc.addPageTemplates([
-        PageTemplate(id="main", frames=frame, onPage=_page_num)
+        PageTemplate(id="main", frames=frame, onPage=page_callback)
     ])
 
     story = []
-    nd = report_data
-    ni = nd["nist_result"]["sample_info"]
-    tests = nd["nist_result"]["tests"]
-    scores = nd["jurisdiction_scores"]
-    level2 = nd["nist_result"].get("level2")
-    supp = nd.get("supplementary_result", {})
-    supp_tests = supp.get("tests", []) if supp else []
 
     # ── PAGE 1: DISCLAIMER ──────────────────────────────────────────────────
     story.append(KeepTogether([_disclaimer_table(styles)]))
     story.append(PageBreak())
 
-    # ── PAGE 2: REPORT HEADER ───────────────────────────────────────────────
-    story.append(Paragraph("Finalogic Pre-Audit RNG Readiness Report", styles["h1"]))
-    story.append(Paragraph("<i>Pre-Audit Readiness Assessment — Not an Accredited Audit</i>",
-                           styles["body"]))
+    # ── PAGE 2: REPORT HEADER + METADATA ────────────────────────────────────
+    story.append(Paragraph("MiniLab RNG Engine — Pre-Audit Readiness Report",
+                           styles["h1"]))
+    story.append(Paragraph(
+        "<i>Pre-Audit Readiness Assessment — Not an Accredited Audit</i>",
+        styles["body"],
+    ))
     story.append(Spacer(1, 6 * mm))
 
     analysis_mode = "Multi-sequence Level-2" if level2 else "Single-sequence"
     meta = [
+        ("Report ID",               nd.get("report_id", "Not recorded")),
+        ("Tool version",            nd.get("tool_version", "Not recorded")),
+        ("Methodology version",     nd.get("methodology_version", "Not recorded")),
         ("File submitted",          nd["filename"]),
+        ("Input SHA-256",           nd.get("input_sha256", "Not recorded")),
         ("Generated at",            nd["generated_at"]),
-        ("AUP accepted",            nd.get("aup_timestamp") or "Not recorded (pre-AUP session)"),
         ("Sample size",             _format_bits(ni["size_bits"])),
         ("Sufficient for testing",  "Yes" if ni["sufficient"] else "No — see warnings below"),
         ("Analysis mode",           analysis_mode),
@@ -282,53 +373,70 @@ def generate_pdf(report_data: dict) -> bytes:
     for label, value in meta:
         story.append(Paragraph(f"<b>{label}:</b> {value}", styles["body"]))
 
+    story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph("<b>Acceptable Use Policy (AUP) record</b>", styles["h3"]))
+    aup_meta = [
+        ("Accepted",                "Yes" if aup_record.accepted else "No"),
+        ("Accepted by",             aup_record.accepted_by),
+        ("Acceptance timestamp",    aup_record.acceptance_timestamp_utc),
+        ("AUP version",             aup_record.aup_version),
+        ("AUP reference ID",        aup_record.aup_reference_id),
+    ]
+    for label, value in aup_meta:
+        story.append(Paragraph(f"<b>{label}:</b> {value}", styles["body"]))
+
     if ni.get("warnings"):
         story.append(Spacer(1, 3 * mm))
         for w in ni["warnings"]:
-            story.append(Paragraph(f"⚠ {w}", styles["small"]))
+            story.append(Paragraph(w, styles["small"]))
 
     story.append(PageBreak())
 
-    # ── PAGE 3: NIST RESULTS ────────────────────────────────────────────────
+    # ── PAGE 3: LEGEND + NIST RESULTS ──────────────────────────────────────
+    story.append(Paragraph("Results Legend", styles["h2"]))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#BBBBBB")))
+    story.append(Spacer(1, 3 * mm))
+    story.append(_results_legend(styles))
+    story.append(Spacer(1, 6 * mm))
+
     story.append(Paragraph("NIST SP 800-22 Results", styles["h2"]))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#BBBBBB")))
     story.append(Spacer(1, 3 * mm))
     story.append(_nist_table(tests, styles))
     story.append(Spacer(1, 4 * mm))
 
-    failed   = [t for t in tests if t["status"] == "fail"]
-    warnings = [t for t in tests if t["status"] == "warning"]
-    passed   = [t for t in tests if t["status"] == "pass"]
+    failed     = [t for t in tests if t["status"] == LABEL_FAIL]
+    borderline = [t for t in tests if t["status"] == LABEL_BORDERLINE]
+    passed     = [t for t in tests if t["status"] == LABEL_PASS]
 
     if failed:
         summary = (f"<b>{len(failed)} of {len(tests)} test(s) FAILED.</b> Failing tests: "
                    + ", ".join(t["name"] for t in failed)
                    + ". These results indicate statistically significant non-randomness "
                      "in the submitted sample.")
-    elif warnings:
-        wnames = ", ".join(
-            f"{t['name']} (p={t['p_value']:.4f})" for t in warnings
+    elif borderline:
+        bnames = ", ".join(
+            f"{t['name']} (p={t['p_value']:.4f})" for t in borderline
         )
         summary = (f"<b>{len(passed)} of {len(tests)} tests passed.</b> "
-                   f"{len(warnings)} test(s) borderline: {wnames}. "
+                   f"{len(borderline)} test(s) BORDERLINE: {bnames}. "
                    "A re-run with a larger sample is recommended.")
     else:
         summary = (f"<b>All {len(tests)} tests passed.</b> No statistically significant "
                    "non-randomness was detected in the submitted sample.")
 
-    threshold = tests[0]["threshold_used"] if tests else 0.01
-    story.append(Paragraph(summary + f" Threshold applied: p ≥ {threshold}.", styles["body"]))
+    story.append(Paragraph(summary, styles["body"]))
     story.append(PageBreak())
 
-    # ── LEVEL-2 ANALYSIS (only if multi-sequence ran) ───────────────────────
+    # ── LEVEL-2 ANALYSIS ────────────────────────────────────────────────────
     if level2:
         story.append(Paragraph("NIST Level-2 Analysis", styles["h2"]))
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#BBBBBB")))
         story.append(Spacer(1, 2 * mm))
         story.append(Paragraph(
             f"<b>Mode:</b> Multi-sequence analysis across <b>{level2['n_sequences']} independent "
-            f"sequences</b> of ≥1,000,000 bits each. "
-            "Proportion check: ≥96% of sequences must pass per test (NIST SP 800-22 §4.2.1). "
+            f"sequences</b> of >=1,000,000 bits each. "
+            "Proportion check: >=96% of sequences must pass per test (NIST SP 800-22 §4.2.1). "
             "Uniformity check: KS test of p-value distribution vs Uniform(0,1) — "
             "failure (KS p &lt; 0.0001) indicates a non-uniform p-value distribution.",
             styles["body"],
@@ -347,7 +455,7 @@ def generate_pdf(report_data: dict) -> bytes:
         ))
         story.append(PageBreak())
 
-    # ── PAGE 4: JURISDICTION SCORING MATRIX ─────────────────────────────────
+    # ── JURISDICTION SCORING ────────────────────────────────────────────────
     story.append(Paragraph("Jurisdiction Scoring Matrix", styles["h2"]))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#BBBBBB")))
 
@@ -357,7 +465,7 @@ def generate_pdf(report_data: dict) -> bytes:
 
         heading_row = Table(
             [[Paragraph(f"<b>{jur['name']} ({jur['short_name']})</b>", styles["h3"]),
-              Paragraph(f"<b>{overall.upper()}</b>", styles["body"])]],
+              Paragraph(f"<b>{overall}</b>", styles["body"])]],
             colWidths=[140 * mm, 30 * mm],
         )
         heading_row.setStyle(TableStyle([
@@ -380,7 +488,7 @@ def generate_pdf(report_data: dict) -> bytes:
             Paragraph(f"<b>RTP floor:</b> {jur['rtp_floor_check']['detail']}", styles["body"]),
             Paragraph(
                 f"<b>Tests:</b> {jur['tests_passed']} passed | "
-                f"{jur['tests_warning']} borderline | "
+                f"{jur.get('tests_borderline', jur.get('tests_warning', 0))} borderline | "
                 f"{jur['tests_failed']} failed | "
                 f"{jur['tests_not_run']} not run",
                 styles["body"],
@@ -422,6 +530,10 @@ def generate_pdf(report_data: dict) -> bytes:
 
     story.append(PageBreak())
 
+    # ── SCOPE LIMITATION ────────────────────────────────────────────────────
+    for f in _scope_limitation_section(styles):
+        story.append(f)
+
     # ── LAST PAGE: FOOTER DISCLAIMER ────────────────────────────────────────
     story.append(Paragraph("Disclaimer", styles["h2"]))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#BBBBBB")))
@@ -429,10 +541,10 @@ def generate_pdf(report_data: dict) -> bytes:
     story.append(KeepTogether([_disclaimer_table(styles)]))
     story.append(Spacer(1, 6 * mm))
 
-    aup_ts  = nd.get("aup_timestamp") or "Not recorded (pre-AUP session)"
-    aup_ref = nd.get("aup_ref") or "N/A"
     story.append(Paragraph(
-        f"AUP accepted: {aup_ts} — Ref: {aup_ref}", styles["small"]
+        f"AUP accepted: {aup_record.acceptance_timestamp_utc} - "
+        f"Ref: {aup_record.aup_reference_id}",
+        styles["small"],
     ))
 
     doc.build(story)

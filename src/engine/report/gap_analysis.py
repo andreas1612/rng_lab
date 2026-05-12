@@ -1,11 +1,14 @@
+from core.labels import LABEL_PASS, LABEL_BORDERLINE, LABEL_FAIL
+
+
 def generate_gap_analysis(jurisdiction_scores: list, nist_result: dict) -> str:
     tests = nist_result.get("tests", [])
-    failed_tests  = [t for t in tests if t["status"] == "fail"]
-    warning_tests = [t for t in tests if t["status"] == "warning"]
+    failed_tests     = [t for t in tests if t["status"] == LABEL_FAIL]
+    borderline_tests = [t for t in tests if t["status"] == LABEL_BORDERLINE]
 
-    failing_jurs  = [j for j in jurisdiction_scores if j["overall"] == "fail"]
-    warning_jurs  = [j for j in jurisdiction_scores if j["overall"] == "warning"]
-    passing_jurs  = [j for j in jurisdiction_scores if j["overall"] == "pass"]
+    failing_jurs    = [j for j in jurisdiction_scores if j["overall"] == "FAIL"]
+    borderline_jurs = [j for j in jurisdiction_scores if j["overall"] == "BORDERLINE"]
+    passing_jurs    = [j for j in jurisdiction_scores if j["overall"] == "PASS"]
 
     parts = []
 
@@ -17,8 +20,8 @@ def generate_gap_analysis(jurisdiction_scores: list, nist_result: dict) -> str:
         names = ", ".join(t["name"] for t in perfect_pvalue_tests)
         parts.append(
             f"<p><strong>Note:</strong> {names} returned a p-value of 1.000. "
-            "This is a known artifact of this test at certain sample sizes and does not indicate "
-            "a problem with the RNG. It will self-resolve with a larger input sample.</p>"
+            "This is a known artifact of this test at certain sample sizes and does not "
+            "indicate a problem with the RNG. It will self-resolve with a larger input sample.</p>"
         )
 
     if failing_jurs:
@@ -33,20 +36,20 @@ def generate_gap_analysis(jurisdiction_scores: list, nist_result: dict) -> str:
             "RNG output. The RNG should not be submitted for formal audit in its current state.</p>"
         )
 
-    if warning_jurs:
-        names = ", ".join(j["name"] for j in warning_jurs)
+    if borderline_jurs:
+        names = ", ".join(j["name"] for j in borderline_jurs)
         test_details = "; ".join(
-            f"{t['name']} (p&thinsp;=&thinsp;{t['p_value']:.4f})" for t in warning_tests
+            f"{t['name']} (p&thinsp;=&thinsp;{t['p_value']:.4f})" for t in borderline_tests
         )
         parts.append(
-            f"<p>The following jurisdictions returned a <strong>WARNING</strong> verdict: "
+            f"<p>The following jurisdictions returned a <strong>BORDERLINE</strong> verdict: "
             f"{names}. Borderline tests: {test_details}. "
             "These results do not constitute a failure but indicate the RNG output may be marginal. "
             "A re-run with a larger sample (minimum 10,000,000 bits recommended) is advised "
             "before formal audit.</p>"
         )
 
-    if passing_jurs and not failing_jurs and not warning_jurs:
+    if passing_jurs and not failing_jurs and not borderline_jurs:
         names = ", ".join(j["name"] for j in passing_jurs)
         parts.append(
             f"<p>The tested jurisdictions returned a <strong>PASS</strong> verdict across "
