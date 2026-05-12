@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-multipart
+numpy
+scipy
+jinja2
+reportlab
+# weasyprint requires GTK3 native libraries (not available on restricted Windows machines).
+# Install GTK3 runtime and then replace reportlab with weasyprint here when available.

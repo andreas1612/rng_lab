@@ -1,0 +1,10 @@
+{
+  "name": "finalogic-preaudit-tool",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:ui": "cd src/ui && npm run dev",
+    "dev:api": "cd src/engine && uvicorn main:app --reload",
+    "install:ui": "cd src/ui && npm install"
+  }
+}

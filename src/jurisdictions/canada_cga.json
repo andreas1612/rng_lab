@@ -1,0 +1,14 @@
+{
+  "id": "canada_cga",
+  "name": "Canadian Gaming Association (CGA) — Multi-Province",
+  "short_name": "CGA",
+  "min_rtp_percent": 85,
+  "p_value_floor": 0.01,
+  "p_value_warning_floor": 0.05,
+  "confidence_interval_percent": 95,
+  "statistical_standard": "Per-province, lab-policy driven (NIST SP 800-22 widely used)",
+  "lab_accreditation_standard": "ISO/IEC 17025 (typical; varies by province)",
+  "approved_labs": ["BMM Testlabs", "GLI"],
+  "approved_labs_note": "Each province maintains its own approved lab list. Ontario, BC, and Quebec are the three largest markets and have distinct requirements. GLI and BMM Testlabs operate under the same parent company as of 2022; whichever appears on a province's approved list is the relevant authority.",
+  "notes": "IMPORTANT: Canada has no single federal RTP standard. The 85% floor stored here reflects the Ontario reference threshold used as a conservative baseline. Provincial floors vary and can change — do not treat this value as authoritative for any specific province. Verify current requirements with the relevant provincial regulator or an approved lab before relying on this threshold. Source: CGA Policy Testing Labs.pdf."
+}

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Finalogic Pre-Audit RNG Readiness Report</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 20mm;
+      @bottom-center {
+        content: "Page " counter(page);
+        font-family: Georgia, serif;
+        font-size: 9pt;
+        color: #555;
+      }
+    }
+
+    body {
+      font-family: Georgia, serif;
+      font-size: 11pt;
+      line-height: 1.6;
+      color: #1a1a1a;
+      orphans: 2;
+      widows: 2;
+    }
+
+    h1 { font-size: 18pt; margin: 0 0 4pt; }
+    h2 { font-size: 13pt; margin: 0 0 8pt; border-bottom: 1pt solid #bbb; padding-bottom: 4pt; }
+    h3 { font-size: 11pt; margin: 0 0 6pt; }
+    p  { margin: 0 0 9pt; }
+
+    .page-break { page-break-after: always; }
+
+    /* ── Disclaimer box ── */
+    .disclaimer-box {
+      border: 2pt solid #1a1a1a;
+      padding: 16pt 20pt;
+      page-break-inside: avoid;
+    }
+    .disclaimer-title {
+      font-weight: bold;
+      font-size: 11pt;
+      letter-spacing: 0.3pt;
+      margin-bottom: 10pt;
+    }
+
+    /* ── Metadata rows ── */
+    .meta { margin: 3pt 0; font-size: 10pt; }
+    .warning-item {
+      background: #fff8e1;
+      border-left: 3pt solid #f0c040;
+      padding: 4pt 8pt;
+      margin: 4pt 0;
+      font-size: 10pt;
+      color: #7a5800;
+    }
+
+    /* ── NIST results table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10pt;
+      margin-bottom: 10pt;
+    }
+    th {
+      background: #eee;
+      padding: 5pt 8pt;
+      text-align: left;
+      border: 0.5pt solid #ccc;
+      font-family: Georgia, serif;
+    }
+    td {
+      padding: 4pt 8pt;
+      border: 0.5pt solid #ddd;
+    }
+    code { font-family: "Courier New", monospace; font-size: 10pt; }
+
+    .row-pass        { background: #d4edda; color: #155724; }
+    .row-warning     { background: #fff3cd; color: #856404; }
+    .row-fail        { background: #f8d7da; color: #842029; }
+    .row-other       { background: #e9ecef; color: #6c757d; }
+
+    /* ── Verdict badge ── */
+    .badge {
+      display: inline-block;
+      padding: 1pt 7pt;
+      font-size: 9pt;
+      font-weight: bold;
+      border-radius: 2pt;
+      margin-left: 6pt;
+      vertical-align: middle;
+    }
+    .badge-pass        { background: #d4edda; color: #155724; }
+    .badge-warning     { background: #fff3cd; color: #856404; }
+    .badge-fail        { background: #f8d7da; color: #842029; }
+    .badge-incomplete  { background: #e9ecef; color: #6c757d; }
+
+    /* ── Jurisdiction section ── */
+    .jur-section { margin-bottom: 14pt; page-break-inside: avoid; }
+    .jur-detail  { margin: 3pt 0; font-size: 10pt; }
+    .caveat      { font-size: 9pt; color: #555; font-style: italic; margin-top: 6pt; }
+
+    /* ── Gap analysis ── */
+    .gap-analysis p { margin-bottom: 9pt; }
+
+    /* ── AUP footer line ── */
+    .aup-line { margin-top: 12pt; font-size: 9pt; color: #555; }
+  </style>
+</head>
+<body>
+
+{# ═══════════════════════════════════════════════════════════ #}
+{# PAGE 1 — MANDATORY DISCLAIMER (verbatim from LEGAL.md)     #}
+{# ═══════════════════════════════════════════════════════════ #}
+<div class="disclaimer-box">
+  <p class="disclaimer-title">IMPORTANT NOTICE — PLEASE READ</p>
+  <p>This Pre-Audit Readiness Report has been produced by Finalogic using open-source
+  statistical test suites applied to RNG output data submitted by the client.</p>
+  <p><strong>This report is NOT an accredited audit.</strong> Finalogic is not an
+  ISO/IEC 17025-accredited testing laboratory and is not approved by any gambling
+  regulatory authority as an audit service provider.</p>
+  <p><strong>This report does not constitute regulatory compliance evidence</strong>
+  and cannot be submitted to any gambling authority (including but not limited to the
+  Malta Gaming Authority, UK Gambling Commission, Spillemyndigheden, or any Canadian
+  provincial regulator) in support of a licence application or renewal.</p>
+  <p><strong>A PASS result in this report does not guarantee that the submitted RNG
+  will pass a formal accredited audit.</strong> Accredited audits involve additional
+  evidence, documentation review, and professional judgment beyond the scope of
+  this tool.</p>
+  <p>This report is provided for informational and internal preparedness purposes
+  only. By accepting this report, the client confirms they have read and agreed to
+  Finalogic's Acceptable Use Policy (AUP).</p>
+</div>
+
+<div class="page-break"></div>
+
+{# ═══════════════════════════════ #}
+{# PAGE 2 — REPORT HEADER         #}
+{# ═══════════════════════════════ #}
+<h1>Finalogic Pre-Audit RNG Readiness Report</h1>
+<p><em>Pre-Audit Readiness Assessment — Not an Accredited Audit</em></p>
+
+<div class="meta"><strong>File submitted:</strong> {{ filename }}</div>
+<div class="meta"><strong>Generated at:</strong> {{ generated_at }}</div>
+<div class="meta"><strong>AUP accepted:</strong> {{ aup_timestamp | default("Not recorded — will be wired in Sprint 4") }}</div>
+<div class="meta"><strong>Sample size:</strong> {{ nist_result.sample_info.size_bits | format_bits }}</div>
+<div class="meta"><strong>Sufficient for NIST testing:</strong>
+  {{ "Yes" if nist_result.sample_info.sufficient else "No — see warnings below" }}
+</div>
+
+{% if nist_result.sample_info.warnings %}
+<div style="margin-top: 10pt;">
+  {% for w in nist_result.sample_info.warnings %}
+  <div class="warning-item">&#9888; {{ w }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="page-break"></div>
+
+{# ════════════════════════════════════ #}
+{# PAGE 3 — NIST SP 800-22 RESULTS     #}
+{# ════════════════════════════════════ #}
+<h2>NIST SP 800-22 Results</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Test Name</th>
+      <th>P-Value</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for test in nist_result.tests %}
+    {% if test.status == "pass" %}{% set row_cls = "row-pass" %}
+    {% elif test.status == "warning" %}{% set row_cls = "row-warning" %}
+    {% elif test.status == "fail" %}{% set row_cls = "row-fail" %}
+    {% else %}{% set row_cls = "row-other" %}{% endif %}
+    <tr class="{{ row_cls }}">
+      <td>{{ test.name }}</td>
+      <td><code>{{ test.p_value | format_pvalue }}</code></td>
+      <td><strong>{{ test.status | upper }}</strong></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% set failed   = nist_result.tests | selectattr("status", "equalto", "fail")    | list %}
+{% set warnings = nist_result.tests | selectattr("status", "equalto", "warning") | list %}
+{% set passed   = nist_result.tests | selectattr("status", "equalto", "pass")    | list %}
+
+<p>
+{% if failed %}
+<strong>{{ failed | length }} of {{ nist_result.tests | length }} test(s) FAILED.</strong>
+Failing tests: {{ failed | map(attribute="name") | join(", ") }}.
+These results indicate statistically significant non-randomness in the submitted sample.
+{% elif warnings %}
+<strong>{{ passed | length }} of {{ nist_result.tests | length }} tests passed.</strong>
+{{ warnings | length }} test(s) returned a borderline result:
+{% for w in warnings %}{{ w.name }} (p&#8202;=&#8202;{{ w.p_value | format_pvalue }}){% if not loop.last %}, {% endif %}{% endfor %}.
+This result is within acceptable range but a re-run with a larger sample is recommended.
+{% else %}
+<strong>All {{ nist_result.tests | length }} tests passed.</strong>
+No statistically significant non-randomness was detected in the submitted sample.
+{% endif %}
+Threshold applied: p&#8202;&#8805;&#8202;{{ nist_result.tests[0].threshold_used }} (NIST SP 800-22 standard).
+</p>
+
+<div class="page-break"></div>
+
+{# ═══════════════════════════════════════ #}
+{# PAGE 4 — JURISDICTION SCORING MATRIX   #}
+{# ═══════════════════════════════════════ #}
+<h2>Jurisdiction Scoring Matrix</h2>
+
+{% for jur in jurisdiction_scores %}
+{% if jur.overall == "pass" %}{% set badge_cls = "badge-pass" %}
+{% elif jur.overall == "warning" %}{% set badge_cls = "badge-warning" %}
+{% elif jur.overall == "fail" %}{% set badge_cls = "badge-fail" %}
+{% else %}{% set badge_cls = "badge-incomplete" %}{% endif %}
+<div class="jur-section">
+  <h3>{{ jur.name }} ({{ jur.short_name }})
+    <span class="badge {{ badge_cls }}">{{ jur.overall | upper }}</span>
+  </h3>
+  <div class="jur-detail"><strong>NIST check:</strong> {{ jur.nist_check.detail }}</div>
+  <div class="jur-detail"><strong>RTP floor:</strong> {{ jur.rtp_floor_check.detail }}</div>
+  <div class="jur-detail">
+    <strong>Test summary:</strong>
+    {{ jur.tests_passed }} passed &nbsp;|&nbsp;
+    {{ jur.tests_warning }} borderline &nbsp;|&nbsp;
+    {{ jur.tests_failed }} failed &nbsp;|&nbsp;
+    {{ jur.tests_not_run }} not run
+  </div>
+  <p class="caveat">Thresholds applied for {{ jur.name }} are based on publicly available
+  published standards as of {{ generated_at[:10] }}. Regulatory requirements may change.
+  The client is responsible for verifying current requirements with the relevant authority
+  or an approved audit service provider.</p>
+</div>
+{% endfor %}
+
+<div class="page-break"></div>
+
+{# ═══════════════════════════════ #}
+{# PAGE 5 — GAP ANALYSIS           #}
+{# ═══════════════════════════════ #}
+<h2>Gap Analysis</h2>
+<div class="gap-analysis">
+  {{ gap_analysis_html | safe }}
+</div>
+
+<div class="page-break"></div>
+
+{# ═══════════════════════════════════════════════════════════════ #}
+{# LAST PAGE — FOOTER DISCLAIMER (verbatim from LEGAL.md, again)  #}
+{# ═══════════════════════════════════════════════════════════════ #}
+<h2>Disclaimer</h2>
+<div class="disclaimer-box">
+  <p class="disclaimer-title">IMPORTANT NOTICE — PLEASE READ</p>
+  <p>This Pre-Audit Readiness Report has been produced by Finalogic using open-source
+  statistical test suites applied to RNG output data submitted by the client.</p>
+  <p><strong>This report is NOT an accredited audit.</strong> Finalogic is not an
+  ISO/IEC 17025-accredited testing laboratory and is not approved by any gambling
+  regulatory authority as an audit service provider.</p>
+  <p><strong>This report does not constitute regulatory compliance evidence</strong>
+  and cannot be submitted to any gambling authority (including but not limited to the
+  Malta Gaming Authority, UK Gambling Commission, Spillemyndigheden, or any Canadian
+  provincial regulator) in support of a licence application or renewal.</p>
+  <p><strong>A PASS result in this report does not guarantee that the submitted RNG
+  will pass a formal accredited audit.</strong> Accredited audits involve additional
+  evidence, documentation review, and professional judgment beyond the scope of
+  this tool.</p>
+  <p>This report is provided for informational and internal preparedness purposes
+  only. By accepting this report, the client confirms they have read and agreed to
+  Finalogic's Acceptable Use Policy (AUP).</p>
+</div>
+<p class="aup-line">
+  AUP accepted: {{ aup_timestamp | default("Not recorded") }} &mdash;
+  Ref: {{ aup_ref | default("Not recorded") }}
+</p>
+
+</body>
+</html>

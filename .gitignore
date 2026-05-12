@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.env
+.env.local
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite / React build output
+src/ui/dist/
+src/ui/build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Reports output (generated files, not source templates)
+src/report/output/
+
+# Test data (client RNG files should never be committed)
+src/engine/test_data/
+*.bin
+*.rng
+*.dat
+*.raw
+
+# Generated test outputs in root
+test_report_output.pdf
+test_report_preview.html
+*.pdf
+good_report*.pdf
+bad_report*.pdf
+report*.pdf
+
+# Temporary analysis result files
+*_result.json
+large_result.json
+bad_result*.json
+good_result*.json
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp

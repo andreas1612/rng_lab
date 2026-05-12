@@ -1,0 +1,14 @@
+{
+  "id": "mga",
+  "name": "Malta Gaming Authority",
+  "short_name": "MGA",
+  "min_rtp_percent": 85,
+  "p_value_floor": 0.01,
+  "p_value_warning_floor": 0.05,
+  "confidence_interval_percent": 95,
+  "statistical_standard": "NIST SP 800-22",
+  "lab_accreditation_standard": "ISO/IEC 17025",
+  "approved_labs": ["GLI", "BMM Testlabs", "iTech Labs", "eCOGRA", "Quinel"],
+  "approved_labs_note": "GLI and BMM Testlabs operate under the same parent company as of 2022; whichever appears on the approved list is the relevant authority. Verify the current MGA Approved Audit Service Provider list before engaging a lab.",
+  "notes": "MGA explicitly references NIST SP 800-22 in its Technical Standards. Minimum 85% RTP must be disclosed to players. Re-testing required on any material change to the RNG."
+}

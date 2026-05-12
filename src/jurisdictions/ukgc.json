@@ -1,0 +1,14 @@
+{
+  "id": "ukgc",
+  "name": "UK Gambling Commission",
+  "short_name": "UKGC",
+  "min_rtp_percent": null,
+  "p_value_floor": 0.01,
+  "p_value_warning_floor": 0.05,
+  "confidence_interval_percent": 95,
+  "statistical_standard": "NIST SP 800-22 (via UKGC Remote Technical Standards)",
+  "lab_accreditation_standard": "ISO/IEC 17025",
+  "approved_labs": ["iTech Labs", "BMM Testlabs", "GLI", "eCOGRA"],
+  "approved_labs_note": "GLI and BMM Testlabs operate under the same parent company as of 2022; whichever appears on the approved list is the relevant authority. Labs must be UKAS-accredited or equivalent.",
+  "notes": "UKGC sets no fixed minimum RTP floor. The key requirement is that empirical RTP falls within the 95% CI of the declared theoretical RTP. Lab accreditation standard is ISO/IEC 17025 (testing and calibration laboratories), accredited by UKAS or equivalent. Methodology alignment with UKGC RTS is the primary compliance focus."
+}

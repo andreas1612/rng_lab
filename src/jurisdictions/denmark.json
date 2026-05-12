@@ -1,0 +1,14 @@
+{
+  "id": "denmark",
+  "name": "Spillemyndigheden (Danish Gambling Authority)",
+  "short_name": "DGA",
+  "min_rtp_percent": null,
+  "p_value_floor": 0.01,
+  "p_value_warning_floor": 0.05,
+  "confidence_interval_percent": 95,
+  "statistical_standard": "ISO/IEC 17020 (inspection body framework; NIST SP 800-22 implicit)",
+  "lab_accreditation_standard": "ISO/IEC 17020",
+  "approved_labs": [],
+  "approved_labs_note": "Labs must apply for approval directly from Spillemyndigheden. There is no pre-published approved-lab list equivalent to MGA or UKGC. Contact the authority for the current approved lab register.",
+  "notes": "Denmark does not publish a fixed numeric RTP floor. The framework is accreditation-driven — the lab's process must be ISO/IEC 17020 compliant and approved by Spillemyndigheden. Source: F-2024-0540-EN-01.pdf."
+}
